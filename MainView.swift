@@ -19,6 +19,21 @@ struct MainView: View {
     @EnvironmentObject var preferencesManager: PreferencesManager
     @State private var selectedTab = 0
     @State private var showSettings = false
+    @State private var showAPIBlockedNotice = false
+
+    // Key for tracking if the API blocked notice has been shown (version-specific)
+    private let apiBlockedNoticeKey = "api_blocked_notice_shown_v1_8"
+
+    private func checkAndShowNotice() {
+        if !UserDefaults.standard.bool(forKey: apiBlockedNoticeKey) {
+            showAPIBlockedNotice = true
+        }
+    }
+
+    private func dismissNotice() {
+        UserDefaults.standard.set(true, forKey: apiBlockedNoticeKey)
+        showAPIBlockedNotice = false
+    }
 
     func formatResetDate(_ date: Date) -> String {
         let formatter = DateFormatter()
@@ -380,6 +395,76 @@ struct MainView: View {
             .padding(.vertical, 8)
         }
         .frame(width: 450, height: 600)
+        .overlay {
+            if showAPIBlockedNotice {
+                APIBlockedNoticeView(onDismiss: dismissNotice)
+            }
+        }
+        .onAppear {
+            checkAndShowNotice()
+        }
+    }
+}
+
+// MARK: - API Blocked Notice View
+
+struct APIBlockedNoticeView: View {
+    let onDismiss: () -> Void
+    @EnvironmentObject var localizationManager: LocalizationManager
+
+    var body: some View {
+        ZStack {
+            // Dimmed background
+            Color.black.opacity(0.7)
+                .ignoresSafeArea()
+
+            // Notice card
+            VStack(spacing: 20) {
+                // Icon
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 50))
+                    .foregroundColor(.orange)
+
+                // Title
+                Text(localizationManager.currentLanguage == .english ?
+                     "Important Notice" :
+                     "Aviso Importante")
+                    .font(.title2)
+                    .fontWeight(.bold)
+
+                // Message
+                Text(localizationManager.currentLanguage == .english ?
+                     "API data access has been blocked by the company. Currently, only cost estimates based on local data are available.\n\nThe displayed costs are approximations calculated from your local Claude usage files." :
+                     "El acceso a datos por API ha sido bloqueado por la empresa. Actualmente, solo se pueden obtener estimaciones de costes con los datos locales.\n\nLos costes mostrados son aproximaciones calculadas a partir de tus archivos locales de uso de Claude.")
+                    .font(.body)
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal)
+
+                // Dismiss button
+                Button(action: onDismiss) {
+                    Text(localizationManager.currentLanguage == .english ?
+                         "I Understand" :
+                         "Entendido")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 40)
+                .padding(.top, 10)
+            }
+            .padding(30)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color(NSColor.windowBackgroundColor))
+                    .shadow(radius: 20)
+            )
+            .padding(30)
+        }
     }
 }
 

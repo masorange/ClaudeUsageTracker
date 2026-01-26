@@ -44,60 +44,61 @@ class ClaudeUsageManager: ObservableObject {
         var estimatedOutputCost: Double? = nil
     }
     
-    // Process a turn (group of consecutive assistant messages) and count it as ONE billable event
+    // Process a turn - sum ALL messages (each API request is billed separately)
     private func processTurn(_ turnMessages: [(timestamp: String?, monthKey: String?, input: Int, cacheCreation: Int, cacheRead: Int, output: Int, contextSize: Int, model: String?)],
                              monthlyDict: inout [String: TokenBreakdown],
                              projectBreakdown: inout TokenBreakdown,
                              modelDict: inout [String: TokenBreakdown]) {
 
-        // Take only the LAST message of the turn (contains final response)
-        guard let lastMessage = turnMessages.last else { return }
+        // Process ALL messages in the turn (API charges for each request)
+        for message in turnMessages {
+            let input = message.input
+            let cacheCreation = message.cacheCreation
+            let cacheRead = message.cacheRead
+            let output = message.output
+            let contextSize = message.contextSize
+            let modelName = message.model ?? "Unknown Model"
 
-        let input = lastMessage.input
-        let cacheCreation = lastMessage.cacheCreation
-        let cacheRead = lastMessage.cacheRead
-        let output = lastMessage.output
-        let contextSize = lastMessage.contextSize
-        let modelName = lastMessage.model ?? "Unknown Model"
+            // Calculate cost for this message using the model's pricing
+            let messageCost = calculateMessageCost(
+                input: input,
+                cacheCreation: cacheCreation,
+                cacheRead: cacheRead,
+                output: output,
+                contextSize: contextSize,
+                model: modelName
+            )
 
-        // Calculate cost for this turn
-        let turnCost = calculateMessageCost(
-            input: input,
-            cacheCreation: cacheCreation,
-            cacheRead: cacheRead,
-            output: output,
-            contextSize: contextSize
-        )
+            // Update monthly data
+            if let monthKey = message.monthKey {
+                var monthBreakdown = monthlyDict[monthKey] ?? TokenBreakdown()
+                monthBreakdown.inputTokens += input
+                monthBreakdown.cacheCreationTokens += cacheCreation
+                monthBreakdown.cacheReadTokens += cacheRead
+                monthBreakdown.outputTokens += output
+                monthBreakdown.maxContextSize = max(monthBreakdown.maxContextSize, contextSize)
+                monthBreakdown.accumulatedCost += messageCost
+                monthlyDict[monthKey] = monthBreakdown
+            }
 
-        // Update monthly data
-        if let monthKey = lastMessage.monthKey {
-            var monthBreakdown = monthlyDict[monthKey] ?? TokenBreakdown()
-            monthBreakdown.inputTokens += input
-            monthBreakdown.cacheCreationTokens += cacheCreation
-            monthBreakdown.cacheReadTokens += cacheRead
-            monthBreakdown.outputTokens += output
-            monthBreakdown.maxContextSize = max(monthBreakdown.maxContextSize, contextSize)
-            monthBreakdown.accumulatedCost += turnCost
-            monthlyDict[monthKey] = monthBreakdown
+            // Update project data
+            projectBreakdown.inputTokens += input
+            projectBreakdown.cacheCreationTokens += cacheCreation
+            projectBreakdown.cacheReadTokens += cacheRead
+            projectBreakdown.outputTokens += output
+            projectBreakdown.maxContextSize = max(projectBreakdown.maxContextSize, contextSize)
+            projectBreakdown.accumulatedCost += messageCost
+
+            // Update model data
+            var modelBreakdown = modelDict[modelName] ?? TokenBreakdown()
+            modelBreakdown.inputTokens += input
+            modelBreakdown.cacheCreationTokens += cacheCreation
+            modelBreakdown.cacheReadTokens += cacheRead
+            modelBreakdown.outputTokens += output
+            modelBreakdown.maxContextSize = max(modelBreakdown.maxContextSize, contextSize)
+            modelBreakdown.accumulatedCost += messageCost
+            modelDict[modelName] = modelBreakdown
         }
-
-        // Update project data
-        projectBreakdown.inputTokens += input
-        projectBreakdown.cacheCreationTokens += cacheCreation
-        projectBreakdown.cacheReadTokens += cacheRead
-        projectBreakdown.outputTokens += output
-        projectBreakdown.maxContextSize = max(projectBreakdown.maxContextSize, contextSize)
-        projectBreakdown.accumulatedCost += turnCost
-        
-        // Update model data
-        var modelBreakdown = modelDict[modelName] ?? TokenBreakdown()
-        modelBreakdown.inputTokens += input
-        modelBreakdown.cacheCreationTokens += cacheCreation
-        modelBreakdown.cacheReadTokens += cacheRead
-        modelBreakdown.outputTokens += output
-        modelBreakdown.maxContextSize = max(modelBreakdown.maxContextSize, contextSize)
-        modelBreakdown.accumulatedCost += turnCost
-        modelDict[modelName] = modelBreakdown
     }
 
     func loadData(showLoading: Bool = true) {
@@ -475,20 +476,16 @@ class ClaudeUsageManager: ObservableObject {
         return breakdown.accumulatedCost
     }
 
-    // Calculate cost for a single message based on its context size
-    private func calculateMessageCost(input: Int, cacheCreation: Int, cacheRead: Int, output: Int, contextSize: Int) -> Double {
-        // Get pricing based on THIS message's context size
-        let pricing: PricingManager.ContextPricing
-        if let pricingManager = pricingManager {
-            pricing = pricingManager.getPricing(contextSize: contextSize)
-        } else {
-            pricing = .standardDefault
-        }
+    // Calculate cost for a single message based on the model used
+    private func calculateMessageCost(input: Int, cacheCreation: Int, cacheRead: Int, output: Int, contextSize: Int, model: String? = nil) -> Double {
+        // Get pricing based on the model used
+        let modelPricing = PricingManager.getPricing(for: model ?? "claude-sonnet-4-5")
 
-        let inputCost = Double(input) * (pricing.inputTokens / 1_000_000)
-        let cacheCreationCost = Double(cacheCreation) * (pricing.cacheCreation / 1_000_000)
-        let cacheReadCost = Double(cacheRead) * (pricing.cacheRead / 1_000_000)
-        let outputCost = Double(output) * (pricing.outputTokens / 1_000_000)
+        // Convert from per-1K tokens to per-token (divide by 1000)
+        let inputCost = Double(input) * (modelPricing.inputPrice / 1_000_000)
+        let cacheCreationCost = Double(cacheCreation) * (modelPricing.cacheCreation / 1_000_000)
+        let cacheReadCost = Double(cacheRead) * (modelPricing.cacheRead / 1_000_000)
+        let outputCost = Double(output) * (modelPricing.outputPrice / 1_000_000)
 
         return inputCost + cacheCreationCost + cacheReadCost + outputCost
     }

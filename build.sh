@@ -70,7 +70,7 @@ cat > "ClaudeUsageTracker.app/Contents/Info.plist" << 'EOF'
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.7.0</string>
+    <string>1.8.0</string>
     <key>CFBundleVersion</key>
     <string>7</string>
     <key>LSMinimumSystemVersion</key>

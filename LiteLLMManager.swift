@@ -22,6 +22,14 @@ class LiteLLMManager: ObservableObject {
     private let apiBaseURL = "https://llm.tools.cloud.masorange.es"
     private let userDefaultsKey = "litellm_api_key"
 
+    // Cache keys
+    private let cacheDataKey = "litellm_cached_daily_activity"
+    private let cacheLastDateKey = "litellm_cache_last_date"
+    private let cacheTimestampKey = "litellm_cache_timestamp"
+
+    // Minimum time between full API refreshes (1 hour)
+    private let minRefreshInterval: TimeInterval = 3600
+
     struct DailyActivity: Codable {
         let date: String
         let metrics: Metrics
@@ -96,44 +104,116 @@ class LiteLLMManager: ObservableObject {
         return !apiKey.isEmpty && apiKey.hasPrefix("sk-")
     }
 
+    // MARK: - Cache Management
+
+    private func loadCachedData() -> [DailyActivity]? {
+        guard let data = UserDefaults.standard.data(forKey: cacheDataKey) else {
+            return nil
+        }
+        return try? JSONDecoder().decode([DailyActivity].self, from: data)
+    }
+
+    private func saveCachedData(_ activities: [DailyActivity]) {
+        if let data = try? JSONEncoder().encode(activities) {
+            UserDefaults.standard.set(data, forKey: cacheDataKey)
+            UserDefaults.standard.set(Date(), forKey: cacheTimestampKey)
+
+            // Save the last date we have data for
+            if let lastDate = activities.map({ $0.date }).max() {
+                UserDefaults.standard.set(lastDate, forKey: cacheLastDateKey)
+            }
+        }
+    }
+
+    private func getLastCachedDate() -> String? {
+        return UserDefaults.standard.string(forKey: cacheLastDateKey)
+    }
+
+    private func getCacheTimestamp() -> Date? {
+        return UserDefaults.standard.object(forKey: cacheTimestampKey) as? Date
+    }
+
+    private func shouldRefreshFromAPI() -> Bool {
+        guard let lastRefresh = getCacheTimestamp() else {
+            return true // No cache, need to refresh
+        }
+        return Date().timeIntervalSince(lastRefresh) > minRefreshInterval
+    }
+
+    func clearCache() {
+        UserDefaults.standard.removeObject(forKey: cacheDataKey)
+        UserDefaults.standard.removeObject(forKey: cacheLastDateKey)
+        UserDefaults.standard.removeObject(forKey: cacheTimestampKey)
+        print("🗑️ [Cache] Cleared API cache")
+    }
+
+    // MARK: - API Fetch with Incremental Updates
+
     func fetchUsageData() async throws -> (monthlyData: [(month: String, cost: Double, details: ClaudeUsageManager.TokenBreakdown)], modelData: [(model: String, cost: Double, details: ClaudeUsageManager.TokenBreakdown)]) {
         guard hasValidAPIKey() else {
             throw LiteLLMError.missingAPIKey
         }
 
-        // Calculate date range - fetch last 12 months
-        let calendar = Calendar.current
-        let endDate = Date()
-        let startDate = calendar.date(byAdding: .month, value: -12, to: endDate) ?? endDate
-
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
 
-        let startDateString = dateFormatter.string(from: startDate)
-        let endDateString = dateFormatter.string(from: endDate)
+        let calendar = Calendar.current
+        let today = Date()
+        let todayString = dateFormatter.string(from: today)
 
-        print("📅 [API] Fetching data from \(startDateString) to \(endDateString)")
+        // Load cached data
+        var allResults: [DailyActivity] = loadCachedData() ?? []
+        let cachedCount = allResults.count
 
-        // Fetch all pages
-        var allResults: [DailyActivity] = []
+        // Determine start date for API fetch
+        let startDateString: String
+        if let lastCachedDate = getLastCachedDate() {
+            // Incremental: fetch from day after last cached date
+            if let lastDate = dateFormatter.date(from: lastCachedDate),
+               let nextDay = calendar.date(byAdding: .day, value: 1, to: lastDate) {
+                startDateString = dateFormatter.string(from: nextDay)
+
+                // If we already have today's data and it's recent, use cache only
+                if lastCachedDate >= todayString && !shouldRefreshFromAPI() {
+                    print("📦 [Cache] Using cached data (\(allResults.count) days), last refresh: \(getCacheTimestamp()?.description ?? "unknown")")
+                    return processResults(allResults)
+                }
+            } else {
+                // Fallback to 12 months ago
+                let startDate = calendar.date(byAdding: .month, value: -12, to: today) ?? today
+                startDateString = dateFormatter.string(from: startDate)
+            }
+        } else {
+            // No cache, fetch last 12 months
+            let startDate = calendar.date(byAdding: .month, value: -12, to: today) ?? today
+            startDateString = dateFormatter.string(from: startDate)
+        }
+
+        // Skip API call if start date is in the future
+        if startDateString > todayString {
+            print("📦 [Cache] Data is up to date, using cache (\(allResults.count) days)")
+            return processResults(allResults)
+        }
+
+        print("📅 [API] Fetching data from \(startDateString) to \(todayString) (cached: \(cachedCount) days)")
+
+        // Fetch new data from API (only missing dates)
+        var newResults: [DailyActivity] = []
         var currentPage = 1
         var hasMore = true
+        var totalPages = 0
 
         while hasMore {
-            // Build URL with page parameter
-            guard let url = URL(string: "\(apiBaseURL)/user/daily/activity?start_date=\(startDateString)&end_date=\(endDateString)&page=\(currentPage)") else {
+            guard let url = URL(string: "\(apiBaseURL)/user/daily/activity?start_date=\(startDateString)&end_date=\(todayString)&page=\(currentPage)") else {
                 throw LiteLLMError.invalidURL
             }
 
-            // Create request
             var request = URLRequest(url: url)
             request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-            // Perform request
             let (data, response) = try await URLSession.shared.data(for: request)
 
-            // Check response
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw LiteLLMError.invalidResponse
             }
@@ -142,15 +222,14 @@ class LiteLLMManager: ObservableObject {
                 throw LiteLLMError.apiError(statusCode: httpResponse.statusCode)
             }
 
-            // Parse response
             let decoder = JSONDecoder()
             let apiResponse = try decoder.decode(APIResponse.self, from: data)
 
             print("📄 [API] Page \(currentPage): \(apiResponse.results.count) days")
 
-            allResults.append(contentsOf: apiResponse.results)
+            newResults.append(contentsOf: apiResponse.results)
+            totalPages = currentPage
 
-            // Check if there are more pages
             if let metadata = apiResponse.metadata {
                 hasMore = metadata.has_more
                 if hasMore {
@@ -161,11 +240,33 @@ class LiteLLMManager: ObservableObject {
             }
         }
 
-        print("📊 [API] Total: \(allResults.count) days of data across \(currentPage) page(s)")
-        if let firstDate = allResults.first?.date,
-           let lastDate = allResults.last?.date {
-            print("📊 [API] Date range: \(firstDate) to \(lastDate)")
+        print("📊 [API] Fetched \(newResults.count) new days across \(totalPages) page(s)")
+
+        // Merge new results with cached data
+        if !newResults.isEmpty {
+            // Remove any cached entries for dates we're updating (in case of same-day updates)
+            let newDates = Set(newResults.map { $0.date })
+            allResults = allResults.filter { !newDates.contains($0.date) }
+
+            // Add new results
+            allResults.append(contentsOf: newResults)
+
+            // Sort by date
+            allResults.sort { $0.date < $1.date }
+
+            // Save updated cache
+            saveCachedData(allResults)
+            print("💾 [Cache] Saved \(allResults.count) days to cache")
         }
+
+        print("📊 [Total] \(allResults.count) days of data")
+
+        return processResults(allResults)
+    }
+
+    // MARK: - Process Results into Monthly and Model Data
+
+    private func processResults(_ allResults: [DailyActivity]) -> (monthlyData: [(month: String, cost: Double, details: ClaudeUsageManager.TokenBreakdown)], modelData: [(model: String, cost: Double, details: ClaudeUsageManager.TokenBreakdown)]) {
 
         // Group by month AND accumulate by model
         var monthlyDict: [String: ClaudeUsageManager.TokenBreakdown] = [:]
