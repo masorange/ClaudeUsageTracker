@@ -40,6 +40,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         manager.pricingManager = pricingManager
         manager.localizationManager = localizationManager
         manager.liteLLMManager = liteLLMManager
+        manager.accountFilter = preferencesManager.accountFilter
 
         // Check for updates on startup
         Task {
@@ -104,6 +105,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 DispatchQueue.main.async {
                     self?.updateMenuBarTitle()
                 }
+            }
+            .store(in: &cancellables)
+
+        // Observe account filter changes to reload data
+        preferencesManager.$accountFilter
+            .dropFirst() // Skip initial value
+            .sink { [weak self] newFilter in
+                self?.manager.accountFilter = newFilter
+                self?.manager.loadData(showLoading: true)
             }
             .store(in: &cancellables)
 

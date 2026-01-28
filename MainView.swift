@@ -173,6 +173,18 @@ struct MainView: View {
                              (localizationManager.currentLanguage == .english ? "Local Data" : "Datos Locales"))
                             .font(.caption2)
                             .foregroundColor(.secondary)
+
+                        // Account filter indicator
+                        if preferencesManager.accountFilter != .all {
+                            Text("•")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                            Text(preferencesManager.accountFilter == .workOnly ?
+                                 (localizationManager.currentLanguage == .english ? "Work" : "Trabajo") :
+                                 (localizationManager.currentLanguage == .english ? "Personal" : "Personal"))
+                                .font(.caption2)
+                                .foregroundColor(.purple)
+                        }
                     }
 
                     // Toggle to hide cost in menu bar
@@ -214,6 +226,7 @@ struct MainView: View {
                         .environmentObject(pricingManager)
                         .environmentObject(localizationManager)
                         .environmentObject(liteLLMManager)
+                        .environmentObject(preferencesManager)
                 }
 
                 // Language selector

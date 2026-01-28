@@ -28,6 +28,7 @@ class ClaudeUsageManager: ObservableObject {
     var pricingManager: PricingManager?
     var localizationManager: LocalizationManager?
     var liteLLMManager: LiteLLMManager?
+    var accountFilter: AccountFilter = .all
     
     struct TokenBreakdown {
         var inputTokens: Int = 0
@@ -209,6 +210,19 @@ class ClaudeUsageManager: ObservableObject {
                         continue
                     }
 
+                    // Filter by account type based on message ID prefix
+                    if let messageId = message["id"] as? String {
+                        let isVertexMessage = messageId.hasPrefix("msg_vrtx")
+                        switch self.accountFilter {
+                        case .workOnly:
+                            if !isVertexMessage { continue }
+                        case .personalOnly:
+                            if isVertexMessage { continue }
+                        case .all:
+                            break
+                        }
+                    }
+
                     let role = message["role"] as? String
                     let usage = message["usage"] as? [String: Any]
                     let model = json["model"] as? String ?? (message["model"] as? String)
@@ -373,6 +387,19 @@ class ClaudeUsageManager: ObservableObject {
                               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                               let message = json["message"] as? [String: Any] else {
                             continue
+                        }
+
+                        // Filter by account type based on message ID prefix
+                        if let messageId = message["id"] as? String {
+                            let isVertexMessage = messageId.hasPrefix("msg_vrtx")
+                            switch self.accountFilter {
+                            case .workOnly:
+                                if !isVertexMessage { continue }
+                            case .personalOnly:
+                                if isVertexMessage { continue }
+                            case .all:
+                                break
+                            }
                         }
 
                         let role = message["role"] as? String

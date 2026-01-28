@@ -12,6 +12,7 @@ struct SettingsView: View {
     @EnvironmentObject var pricingManager: PricingManager
     @EnvironmentObject var localizationManager: LocalizationManager
     @EnvironmentObject var liteLLMManager: LiteLLMManager
+    @EnvironmentObject var preferencesManager: PreferencesManager
     @Environment(\.dismiss) var dismiss
 
     @State private var apiKey: String = ""
@@ -91,6 +92,28 @@ struct SettingsView: View {
                     }
                     .padding()
                     .background(Color.blue.opacity(0.1))
+                    .cornerRadius(8)
+
+                    // Account Filter Section
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(isEnglish ? "🏢 Account Filter" : "🏢 Filtro de Cuenta")
+                            .font(.subheadline)
+                            .bold()
+
+                        Text(isEnglish ? "Filter costs by account type based on message ID prefix (msg_vrtx_* for Vertex/work, msg_01* for personal)." : "Filtra los costes por tipo de cuenta basándose en el prefijo del ID del mensaje (msg_vrtx_* para Vertex/trabajo, msg_01* para personal).")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Picker(isEnglish ? "Account" : "Cuenta", selection: $preferencesManager.accountFilter) {
+                            Text(isEnglish ? "All accounts" : "Todas las cuentas").tag(AccountFilter.all)
+                            Text(isEnglish ? "Work only (Vertex)" : "Solo trabajo (Vertex)").tag(AccountFilter.workOnly)
+                            Text(isEnglish ? "Personal only" : "Solo personal").tag(AccountFilter.personalOnly)
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                    .padding()
+                    .background(Color.purple.opacity(0.1))
                     .cornerRadius(8)
 
                     Divider()
