@@ -174,8 +174,7 @@ class ClaudeUsageManager: ObservableObject {
                 Thread.sleep(forTimeInterval: 0.3)
             }
 
-            let claudeProjectsPath = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".claude/projects")
+            let claudeProjectsPath = self.getClaudeProjectsPath()
 
             var monthlyDict: [String: TokenBreakdown] = [:]
             var projectDict: [String: TokenBreakdown] = [:]
@@ -354,8 +353,7 @@ class ClaudeUsageManager: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
 
-            let claudeProjectsPath = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".claude/projects")
+            let claudeProjectsPath = self.getClaudeProjectsPath()
 
             var projectDict: [String: TokenBreakdown] = [:]
             var modelDict: [String: TokenBreakdown] = [:]
@@ -523,6 +521,20 @@ class ClaudeUsageManager: ObservableObject {
         return formatter.string(from: Date())
     }
     
+    private func getClaudeProjectsPath() -> URL {
+        // Check if CLAUDE_CONFIG_DIR environment variable is set
+        if let configDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"],
+           !configDir.isEmpty {
+            // Handle tilde expansion
+            let expandedPath = (configDir as NSString).expandingTildeInPath
+            return URL(fileURLWithPath: expandedPath).appendingPathComponent("projects")
+        }
+
+        // Fallback to default ~/.claude/projects
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/projects")
+    }
+
     private func simplifyProjectName(_ name: String) -> String {
         // Extract the actual project name from the path
         // Format: -Users-username-Documents-PERSONAL-ProjectName or similar
