@@ -122,8 +122,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.manager.loadData(showLoading: false)
         }
 
-        // Actualizar cada 1 minuto (sin mostrar loading)
-        timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+        // Update every 5 minutes (reduced from 60s to minimize CPU usage)
+        timer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             self?.manager.loadData(showLoading: false)
         }
 
@@ -133,6 +133,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 await self?.updateManager.checkForUpdates()
             }
         }
+
+        // Register for app termination to clean up resources
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationWillTerminate),
+            name: NSApplication.willTerminateNotification,
+            object: nil
+        )
+    }
+
+    @objc func applicationWillTerminate(_ notification: Notification) {
+        timer?.invalidate()
+        timer = nil
+        updateCheckTimer?.invalidate()
+        updateCheckTimer = nil
+        stopMonitoringClicksOutside()
     }
     
     @objc func togglePopover() {

@@ -29,6 +29,20 @@ class ClaudeUsageManager: ObservableObject {
     var localizationManager: LocalizationManager?
     var liteLLMManager: LiteLLMManager?
     var accountFilter: AccountFilter = .all
+
+    // Reusable date formatter (creating these is expensive)
+    private let iso8601Formatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    // Cache for file modification dates to avoid re-processing unchanged files
+    private var fileModificationCache: [String: Date] = [:]
+    // Cache for processed file results
+    private var fileResultsCache: [String: (monthlyData: [String: TokenBreakdown], projectBreakdown: TokenBreakdown, modelData: [String: TokenBreakdown])] = [:]
+    // Track last account filter to invalidate cache when it changes
+    private var lastAccountFilter: AccountFilter = .all
     
     struct TokenBreakdown {
         var inputTokens: Int = 0
@@ -165,13 +179,15 @@ class ClaudeUsageManager: ObservableObject {
     }
 
     private func loadLocalData(showLoading: Bool) {
-        // Procesar datos en background
+        // Process data in background
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
 
-            // Delay mínimo para que el spinner sea visible (solo si mostramos loading)
-            if showLoading {
-                Thread.sleep(forTimeInterval: 0.3)
+            // Invalidate cache if account filter changed
+            if self.lastAccountFilter != self.accountFilter {
+                self.fileModificationCache.removeAll()
+                self.fileResultsCache.removeAll()
+                self.lastAccountFilter = self.accountFilter
             }
 
             let claudeProjectsPath = self.getClaudeProjectsPath()
@@ -194,9 +210,55 @@ class ClaudeUsageManager: ObservableObject {
             
             for file in files where file.hasSuffix(".jsonl") {
                 let filePath = projectPath.appendingPathComponent(file)
+                let fileKey = filePath.path
+
+                // Check if file has been modified since last cache
+                if let attributes = try? FileManager.default.attributesOfItem(atPath: fileKey),
+                   let modDate = attributes[.modificationDate] as? Date {
+                    if let cachedDate = self.fileModificationCache[fileKey],
+                       let cachedResult = self.fileResultsCache[fileKey],
+                       modDate <= cachedDate {
+                        // File unchanged, use cached results
+                        for (month, breakdown) in cachedResult.monthlyData {
+                            var existing = monthlyDict[month] ?? TokenBreakdown()
+                            existing.inputTokens += breakdown.inputTokens
+                            existing.cacheCreationTokens += breakdown.cacheCreationTokens
+                            existing.cacheReadTokens += breakdown.cacheReadTokens
+                            existing.outputTokens += breakdown.outputTokens
+                            existing.maxContextSize = max(existing.maxContextSize, breakdown.maxContextSize)
+                            existing.accumulatedCost += breakdown.accumulatedCost
+                            monthlyDict[month] = existing
+                        }
+                        projectBreakdown.inputTokens += cachedResult.projectBreakdown.inputTokens
+                        projectBreakdown.cacheCreationTokens += cachedResult.projectBreakdown.cacheCreationTokens
+                        projectBreakdown.cacheReadTokens += cachedResult.projectBreakdown.cacheReadTokens
+                        projectBreakdown.outputTokens += cachedResult.projectBreakdown.outputTokens
+                        projectBreakdown.maxContextSize = max(projectBreakdown.maxContextSize, cachedResult.projectBreakdown.maxContextSize)
+                        projectBreakdown.accumulatedCost += cachedResult.projectBreakdown.accumulatedCost
+                        for (model, breakdown) in cachedResult.modelData {
+                            var existing = modelDict[model] ?? TokenBreakdown()
+                            existing.inputTokens += breakdown.inputTokens
+                            existing.cacheCreationTokens += breakdown.cacheCreationTokens
+                            existing.cacheReadTokens += breakdown.cacheReadTokens
+                            existing.outputTokens += breakdown.outputTokens
+                            existing.maxContextSize = max(existing.maxContextSize, breakdown.maxContextSize)
+                            existing.accumulatedCost += breakdown.accumulatedCost
+                            modelDict[model] = existing
+                        }
+                        continue
+                    }
+                    // Update cache with new modification date
+                    self.fileModificationCache[fileKey] = modDate
+                }
+
                 guard let content = try? String(contentsOf: filePath) else { continue }
 
                 let lines = content.components(separatedBy: .newlines)
+
+                // Local results for this file (for caching)
+                var fileMonthlyDict: [String: TokenBreakdown] = [:]
+                var fileProjectBreakdown = TokenBreakdown()
+                var fileModelDict: [String: TokenBreakdown] = [:]
 
                 // Track consecutive assistant messages (same turn)
                 var currentTurnMessages: [(timestamp: String?, monthKey: String?, input: Int, cacheCreation: Int, cacheRead: Int, output: Int, contextSize: Int, model: String?)] = []
@@ -230,7 +292,7 @@ class ClaudeUsageManager: ObservableObject {
                     guard let usage = usage else {
                         // Process accumulated turn messages
                         if !currentTurnMessages.isEmpty {
-                            processTurn(currentTurnMessages, monthlyDict: &monthlyDict, projectBreakdown: &projectBreakdown, modelDict: &modelDict)
+                            self.processTurn(currentTurnMessages, monthlyDict: &fileMonthlyDict, projectBreakdown: &fileProjectBreakdown, modelDict: &fileModelDict)
                             currentTurnMessages.removeAll()
                         }
                         lastTimestamp = nil
@@ -241,7 +303,7 @@ class ClaudeUsageManager: ObservableObject {
                     let cacheRead = usage["cache_read_input_tokens"] as? Int ?? 0
                     let output = usage["output_tokens"] as? Int ?? 0
 
-                    // Cache creation - intentar ambos formatos (viejo y nuevo)
+                    // Cache creation - try both formats (old and new)
                     var cacheCreation = usage["cache_creation_input_tokens"] as? Int ?? 0
                     if cacheCreation == 0, let cacheCreationDict = usage["cache_creation"] as? [String: Any] {
                         cacheCreation = cacheCreationDict["ephemeral_5m_input_tokens"] as? Int ?? 0
@@ -255,11 +317,8 @@ class ClaudeUsageManager: ObservableObject {
                     // Check if this is part of the same turn (assistant role, within 10 seconds)
                     var isNewTurn = false
                     if let timestamp = timestamp {
-                        // Configure formatter to handle fractional seconds
-                        let formatter = ISO8601DateFormatter()
-                        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
-                        if let currentDate = formatter.date(from: timestamp) {
+                        // Use reusable formatter instead of creating new one per line
+                        if let currentDate = self.iso8601Formatter.date(from: timestamp) {
                             if let lastDate = lastTimestamp {
                                 let timeDiff = currentDate.timeIntervalSince(lastDate)
                                 // If more than 10 seconds apart or role is not assistant, start new turn
@@ -278,7 +337,7 @@ class ClaudeUsageManager: ObservableObject {
 
                     // If new turn starts, process the previous turn
                     if isNewTurn && !currentTurnMessages.isEmpty {
-                        processTurn(currentTurnMessages, monthlyDict: &monthlyDict, projectBreakdown: &projectBreakdown, modelDict: &modelDict)
+                        self.processTurn(currentTurnMessages, monthlyDict: &fileMonthlyDict, projectBreakdown: &fileProjectBreakdown, modelDict: &fileModelDict)
                         currentTurnMessages.removeAll()
                     }
 
@@ -297,7 +356,38 @@ class ClaudeUsageManager: ObservableObject {
 
                 // Process any remaining turn messages at the end of file
                 if !currentTurnMessages.isEmpty {
-                    processTurn(currentTurnMessages, monthlyDict: &monthlyDict, projectBreakdown: &projectBreakdown, modelDict: &modelDict)
+                    self.processTurn(currentTurnMessages, monthlyDict: &fileMonthlyDict, projectBreakdown: &fileProjectBreakdown, modelDict: &fileModelDict)
+                }
+
+                // Cache the results for this file
+                self.fileResultsCache[fileKey] = (monthlyData: fileMonthlyDict, projectBreakdown: fileProjectBreakdown, modelData: fileModelDict)
+
+                // Merge file results into global dictionaries
+                for (month, breakdown) in fileMonthlyDict {
+                    var existing = monthlyDict[month] ?? TokenBreakdown()
+                    existing.inputTokens += breakdown.inputTokens
+                    existing.cacheCreationTokens += breakdown.cacheCreationTokens
+                    existing.cacheReadTokens += breakdown.cacheReadTokens
+                    existing.outputTokens += breakdown.outputTokens
+                    existing.maxContextSize = max(existing.maxContextSize, breakdown.maxContextSize)
+                    existing.accumulatedCost += breakdown.accumulatedCost
+                    monthlyDict[month] = existing
+                }
+                projectBreakdown.inputTokens += fileProjectBreakdown.inputTokens
+                projectBreakdown.cacheCreationTokens += fileProjectBreakdown.cacheCreationTokens
+                projectBreakdown.cacheReadTokens += fileProjectBreakdown.cacheReadTokens
+                projectBreakdown.outputTokens += fileProjectBreakdown.outputTokens
+                projectBreakdown.maxContextSize = max(projectBreakdown.maxContextSize, fileProjectBreakdown.maxContextSize)
+                projectBreakdown.accumulatedCost += fileProjectBreakdown.accumulatedCost
+                for (model, breakdown) in fileModelDict {
+                    var existing = modelDict[model] ?? TokenBreakdown()
+                    existing.inputTokens += breakdown.inputTokens
+                    existing.cacheCreationTokens += breakdown.cacheCreationTokens
+                    existing.cacheReadTokens += breakdown.cacheReadTokens
+                    existing.outputTokens += breakdown.outputTokens
+                    existing.maxContextSize = max(existing.maxContextSize, breakdown.maxContextSize)
+                    existing.accumulatedCost += breakdown.accumulatedCost
+                    modelDict[model] = existing
                 }
             }
             
@@ -349,14 +439,14 @@ class ClaudeUsageManager: ObservableObject {
     }
 
     private func loadLocalProjectData() {
-        // Load project data from local files (always local, API doesn't provide this)
+        // Load project data from cached results (files were already processed in loadLocalData)
+        // This avoids re-reading and re-parsing the same JSONL files
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
 
             let claudeProjectsPath = self.getClaudeProjectsPath()
 
             var projectDict: [String: TokenBreakdown] = [:]
-            var modelDict: [String: TokenBreakdown] = [:]
 
             guard let projects = try? FileManager.default.contentsOfDirectory(atPath: claudeProjectsPath.path) else {
                 return
@@ -372,100 +462,16 @@ class ClaudeUsageManager: ObservableObject {
 
                 for file in files where file.hasSuffix(".jsonl") {
                     let filePath = projectPath.appendingPathComponent(file)
-                    guard let content = try? String(contentsOf: filePath) else { continue }
+                    let fileKey = filePath.path
 
-                    let lines = content.components(separatedBy: .newlines)
-
-                    var currentTurnMessages: [(timestamp: String?, monthKey: String?, input: Int, cacheCreation: Int, cacheRead: Int, output: Int, contextSize: Int, model: String?)] = []
-                    var lastTimestamp: Date?
-                    var dummyMonthlyDict: [String: TokenBreakdown] = [:] // Not used but needed for processTurn
-
-                    for line in lines where !line.isEmpty {
-                        guard let data = line.data(using: .utf8),
-                              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                              let message = json["message"] as? [String: Any] else {
-                            continue
-                        }
-
-                        // Filter by account type based on message ID prefix
-                        if let messageId = message["id"] as? String {
-                            let isVertexMessage = messageId.hasPrefix("msg_vrtx")
-                            switch self.accountFilter {
-                            case .workOnly:
-                                if !isVertexMessage { continue }
-                            case .personalOnly:
-                                if isVertexMessage { continue }
-                            case .all:
-                                break
-                            }
-                        }
-
-                        let role = message["role"] as? String
-                        let usage = message["usage"] as? [String: Any]
-                        let model = json["model"] as? String ?? (message["model"] as? String)
-
-                        guard let usage = usage else {
-                            if !currentTurnMessages.isEmpty {
-                                self.processTurn(currentTurnMessages, monthlyDict: &dummyMonthlyDict, projectBreakdown: &projectBreakdown, modelDict: &modelDict)
-                                currentTurnMessages.removeAll()
-                            }
-                            lastTimestamp = nil
-                            continue
-                        }
-
-                        let input = usage["input_tokens"] as? Int ?? 0
-                        let cacheRead = usage["cache_read_input_tokens"] as? Int ?? 0
-                        let output = usage["output_tokens"] as? Int ?? 0
-
-                        var cacheCreation = usage["cache_creation_input_tokens"] as? Int ?? 0
-                        if cacheCreation == 0, let cacheCreationDict = usage["cache_creation"] as? [String: Any] {
-                            cacheCreation = cacheCreationDict["ephemeral_5m_input_tokens"] as? Int ?? 0
-                            cacheCreation += cacheCreationDict["ephemeral_1h_input_tokens"] as? Int ?? 0
-                        }
-
-                        let contextSize = input + cacheCreation + cacheRead
-                        let timestamp = json["timestamp"] as? String
-                        let monthKey = timestamp.map { String($0.prefix(7)) }
-
-                        var isNewTurn = false
-                        if let timestamp = timestamp {
-                            let formatter = ISO8601DateFormatter()
-                            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
-                            if let currentDate = formatter.date(from: timestamp) {
-                                if let lastDate = lastTimestamp {
-                                    let timeDiff = currentDate.timeIntervalSince(lastDate)
-                                    if timeDiff > 10 || role != "assistant" {
-                                        isNewTurn = true
-                                    }
-                                }
-                                lastTimestamp = currentDate
-                            } else {
-                                isNewTurn = true
-                            }
-                        } else {
-                            isNewTurn = true
-                        }
-
-                        if isNewTurn && !currentTurnMessages.isEmpty {
-                            self.processTurn(currentTurnMessages, monthlyDict: &dummyMonthlyDict, projectBreakdown: &projectBreakdown, modelDict: &modelDict)
-                            currentTurnMessages.removeAll()
-                        }
-
-                        currentTurnMessages.append((
-                            timestamp: timestamp,
-                            monthKey: monthKey,
-                            input: input,
-                            cacheCreation: cacheCreation,
-                            cacheRead: cacheRead,
-                            output: output,
-                            contextSize: contextSize,
-                            model: model
-                        ))
-                    }
-
-                    if !currentTurnMessages.isEmpty {
-                        self.processTurn(currentTurnMessages, monthlyDict: &dummyMonthlyDict, projectBreakdown: &projectBreakdown, modelDict: &modelDict)
+                    // Use cached results if available
+                    if let cachedResult = self.fileResultsCache[fileKey] {
+                        projectBreakdown.inputTokens += cachedResult.projectBreakdown.inputTokens
+                        projectBreakdown.cacheCreationTokens += cachedResult.projectBreakdown.cacheCreationTokens
+                        projectBreakdown.cacheReadTokens += cachedResult.projectBreakdown.cacheReadTokens
+                        projectBreakdown.outputTokens += cachedResult.projectBreakdown.outputTokens
+                        projectBreakdown.maxContextSize = max(projectBreakdown.maxContextSize, cachedResult.projectBreakdown.maxContextSize)
+                        projectBreakdown.accumulatedCost += cachedResult.projectBreakdown.accumulatedCost
                     }
                 }
 
@@ -481,17 +487,6 @@ class ClaudeUsageManager: ObservableObject {
                     let simplifiedName = self.simplifyProjectName(project)
                     return (project: simplifiedName, cost: cost, details: breakdown)
                 }.sorted { $0.cost > $1.cost }
-                
-                // Only update model data from local files if NOT using API
-                // (API provides better model breakdown including Gemini, etc.)
-                if self.dataSource != .api {
-                    self.modelData = modelDict.compactMap { (model, breakdown) in
-                        let cost = self.calculateCost(breakdown)
-                        // Only include models with actual spend
-                        guard cost > 0 else { return nil }
-                        return (model: model, cost: cost, details: breakdown)
-                    }.sorted { $0.cost > $1.cost }
-                }
             }
         }
     }
