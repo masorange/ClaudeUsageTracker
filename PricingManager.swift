@@ -15,36 +15,47 @@ class PricingManager: ObservableObject {
 
     private let defaults = UserDefaults.standard
 
-    // Model pricing in USD per 1M tokens
+    // Vertex AI regional endpoint multiplier (10% premium over global)
+    static let vertexRegionalMultiplier: Double = 1.1
+
+    // Model pricing in USD per 1M tokens (Vertex AI Regional pricing)
     struct ModelPricing {
         let inputPrice: Double   // USD per 1M tokens
         let outputPrice: Double  // USD per 1M tokens
 
-        // Cache pricing (derived from input price, adjusted for MasOrange)
-        var cacheCreation: Double { inputPrice * 1.00 }  // Same as input price
-        var cacheRead: Double { inputPrice * 0.025 }     // 2.5% of input price
+        // Cache pricing (Anthropic standard multipliers applied on top of regional pricing)
+        var cacheCreation: Double { inputPrice * 1.25 }  // 1.25x input price (5min TTL)
+        var cacheRead: Double { inputPrice * 0.10 }      // 10% of input price
     }
 
     // Pricing dictionary for all supported models (prices in USD per 1M tokens)
-    // Prices based on MasOrange/LiteLLM proxy pricing
+    // Prices include Vertex AI Regional 1.1x multiplier
     static let modelPricing: [String: ModelPricing] = [
-        // Claude Opus models
-        "claude-opus-4-5": ModelPricing(inputPrice: 5.00, outputPrice: 25.00),
-        "claude-4-5-opus": ModelPricing(inputPrice: 5.00, outputPrice: 25.00),
-        "claude-opus-4-5-20251101": ModelPricing(inputPrice: 5.00, outputPrice: 25.00),
+        // Claude Opus 4.6 models
+        "claude-opus-4-6": ModelPricing(inputPrice: 5.50, outputPrice: 27.50),
+        "claude-4-6-opus": ModelPricing(inputPrice: 5.50, outputPrice: 27.50),
 
-        // Claude Sonnet models
-        "claude-sonnet-4-5": ModelPricing(inputPrice: 3.00, outputPrice: 15.00),
-        "claude-4-5-sonnet": ModelPricing(inputPrice: 3.00, outputPrice: 15.00),
-        "claude-sonnet-4-5-20251022": ModelPricing(inputPrice: 3.00, outputPrice: 15.00),
-        "claude-sonnet-4-5-20250929": ModelPricing(inputPrice: 3.00, outputPrice: 15.00),
+        // Claude Opus 4.5 models
+        "claude-opus-4-5": ModelPricing(inputPrice: 5.50, outputPrice: 27.50),
+        "claude-4-5-opus": ModelPricing(inputPrice: 5.50, outputPrice: 27.50),
+        "claude-opus-4-5-20251101": ModelPricing(inputPrice: 5.50, outputPrice: 27.50),
+
+        // Claude Sonnet 4.6 models
+        "claude-sonnet-4-6": ModelPricing(inputPrice: 3.30, outputPrice: 16.50),
+        "claude-4-6-sonnet": ModelPricing(inputPrice: 3.30, outputPrice: 16.50),
+
+        // Claude Sonnet 4.5 models
+        "claude-sonnet-4-5": ModelPricing(inputPrice: 3.30, outputPrice: 16.50),
+        "claude-4-5-sonnet": ModelPricing(inputPrice: 3.30, outputPrice: 16.50),
+        "claude-sonnet-4-5-20251022": ModelPricing(inputPrice: 3.30, outputPrice: 16.50),
+        "claude-sonnet-4-5-20250929": ModelPricing(inputPrice: 3.30, outputPrice: 16.50),
 
         // Claude Haiku models
-        "claude-haiku-4-5-20251001": ModelPricing(inputPrice: 1.00, outputPrice: 5.00),
-        "claude-4-5-haiku": ModelPricing(inputPrice: 1.00, outputPrice: 5.00),
-        "haiku": ModelPricing(inputPrice: 1.00, outputPrice: 5.00),
+        "claude-haiku-4-5-20251001": ModelPricing(inputPrice: 1.10, outputPrice: 5.50),
+        "claude-4-5-haiku": ModelPricing(inputPrice: 1.10, outputPrice: 5.50),
+        "haiku": ModelPricing(inputPrice: 1.10, outputPrice: 5.50),
 
-        // Gemini models
+        // Gemini models (no regional multiplier - Google native)
         "gemini-3-pro-preview": ModelPricing(inputPrice: 2.00, outputPrice: 12.00),
         "gemini-2.5-pro": ModelPricing(inputPrice: 1.25, outputPrice: 10.00),
         "gemini-2.5-flash": ModelPricing(inputPrice: 0.30, outputPrice: 2.50),
@@ -54,8 +65,8 @@ class PricingManager: ObservableObject {
         "bge-m3": ModelPricing(inputPrice: 0.15, outputPrice: 0.00),
     ]
 
-    // Default pricing (Sonnet) for unknown models
-    static let defaultModelPricing = ModelPricing(inputPrice: 3.00, outputPrice: 15.00)
+    // Default pricing (Sonnet Vertex Regional) for unknown models
+    static let defaultModelPricing = ModelPricing(inputPrice: 3.30, outputPrice: 16.50)
 
     // Get pricing for a specific model
     static func getPricing(for modelName: String) -> ModelPricing {
@@ -82,18 +93,19 @@ class PricingManager: ObservableObject {
         var cacheCreation: Double
         var cacheRead: Double
 
+        // Vertex AI Regional pricing (Anthropic base * 1.1x)
         static let standardDefault = ContextPricing(
-            inputTokens: 3.00,
-            outputTokens: 15.00,
-            cacheCreation: 3.75,
-            cacheRead: 0.30
+            inputTokens: 3.30,
+            outputTokens: 16.50,
+            cacheCreation: 4.125,
+            cacheRead: 0.33
         )
 
         static let longDefault = ContextPricing(
-            inputTokens: 6.00,
-            outputTokens: 22.50,
-            cacheCreation: 7.50,
-            cacheRead: 0.60
+            inputTokens: 6.60,
+            outputTokens: 24.75,
+            cacheCreation: 8.25,
+            cacheRead: 0.66
         )
     }
     
