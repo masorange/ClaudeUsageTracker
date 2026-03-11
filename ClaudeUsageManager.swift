@@ -216,18 +216,17 @@ class ClaudeUsageManager: ObservableObject {
 
     private func loadWithLookerStudioOrLocal(showLoading: Bool) {
         if let lookerManager = lookerStudioManager, lookerManager.hasValidCookies() {
-            // Load local data for per-token breakdown, but don't clear isLoading yet
-            loadLocalData(showLoading: false, forTokenBreakdownOnly: true)
+            // Load local data first (shows immediately with local costs)
+            loadLocalData(showLoading: false, forTokenBreakdownOnly: false)
 
-            // Refresh Looker for accurate totals and model breakdown
+            // Then refresh Looker for accurate totals (overrides local when ready)
             Task {
                 await lookerManager.refreshData()
                 // handleLookerDataUpdated will fire and override totals/model data
                 await MainActor.run {
-                    if showLoading {
-                        self.isLoading = false
-                        self.onLoadingStateChanged?(false)
-                    }
+                    self.isLoading = false
+                    self.onLoadingStateChanged?(false)
+                    self.onDataUpdated?()
                 }
             }
             return
