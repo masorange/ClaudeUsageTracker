@@ -28,6 +28,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var pricingManager = PricingManager()
     var currencyManager = CurrencyManager()
     var liteLLMManager = LiteLLMManager()
+    var lookerStudioManager = LookerStudioManager()
     var updateManager = UpdateManager()
     var preferencesManager = PreferencesManager()
     private var timer: Timer?
@@ -40,6 +41,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         manager.pricingManager = pricingManager
         manager.localizationManager = localizationManager
         manager.liteLLMManager = liteLLMManager
+        manager.lookerStudioManager = lookerStudioManager
         manager.accountFilter = preferencesManager.accountFilter
 
         // Check for updates on startup
@@ -117,9 +119,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
-        // Cargar datos iniciales (sin mostrar loading)
+        // Load initial data with loading indicator
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.manager.loadData(showLoading: false)
+            self?.manager.loadData(showLoading: true)
         }
 
         // Update every 5 minutes (reduced from 60s to minimize CPU usage)
@@ -190,6 +192,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 .environmentObject(pricingManager)
                 .environmentObject(currencyManager)
                 .environmentObject(liteLLMManager)
+                .environmentObject(lookerStudioManager)
                 .environmentObject(updateManager)
                 .environmentObject(preferencesManager)
         )

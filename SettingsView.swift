@@ -13,9 +13,11 @@ struct SettingsView: View {
     @EnvironmentObject var localizationManager: LocalizationManager
     @EnvironmentObject var liteLLMManager: LiteLLMManager
     @EnvironmentObject var preferencesManager: PreferencesManager
+    @EnvironmentObject var lookerStudioManager: LookerStudioManager
     @Environment(\.dismiss) var dismiss
 
     @State private var apiKey: String = ""
+    @State private var isConnectingLooker: Bool = false
     @State private var standardInput: String
     @State private var standardOutput: String
     @State private var standardCacheCreation: String
@@ -114,6 +116,103 @@ struct SettingsView: View {
                     }
                     .padding()
                     .background(Color.purple.opacity(0.1))
+                    .cornerRadius(8)
+
+                    // Looker Studio Configuration Section
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(isEnglish ? "📊 Looker Studio Connection" : "📊 Conexion Looker Studio")
+                            .font(.subheadline)
+                            .bold()
+
+                        if lookerStudioManager.isConfigured {
+                            // Connected state
+                            HStack(spacing: 6) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                Text(isEnglish ? "Connected" : "Conectado")
+                                    .font(.caption)
+                                    .foregroundColor(.green)
+                                Spacer()
+                            }
+
+                            if lookerStudioManager.totalSpend > 0 {
+                                HStack(spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(isEnglish ? "Total Spend" : "Gasto Total")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                        Text("$\(String(format: "%.2f", lookerStudioManager.totalSpend))")
+                                            .font(.caption)
+                                            .bold()
+                                    }
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(isEnglish ? "Monthly Spend" : "Gasto Mensual")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                        Text("$\(String(format: "%.2f", lookerStudioManager.monthlySpend))")
+                                            .font(.caption)
+                                            .bold()
+                                    }
+                                    Spacer()
+                                }
+                            }
+
+                            HStack(spacing: 8) {
+                                Button(action: openLookerLogin) {
+                                    HStack(spacing: 4) {
+                                        if isConnectingLooker {
+                                            ProgressView()
+                                                .scaleEffect(0.5)
+                                                .frame(width: 12, height: 12)
+                                        } else {
+                                            Image(systemName: "arrow.triangle.2.circlepath")
+                                        }
+                                        Text(isEnglish ? "Refresh" : "Actualizar")
+                                    }
+                                    .font(.caption)
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(isConnectingLooker)
+
+                                Button(action: clearLookerCookies) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "xmark.circle")
+                                        Text(isEnglish ? "Disconnect" : "Desconectar")
+                                    }
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                                }
+                                .buttonStyle(.plain)
+
+                                Spacer()
+                            }
+                        } else {
+                            // Not connected state
+                            Text(isEnglish ? "Connect to Looker Studio to get real spend data from the company dashboard." : "Conecta con Looker Studio para obtener datos reales de gasto del dashboard de la empresa.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            Button(action: openLookerLogin) {
+                                HStack(spacing: 6) {
+                                    if isConnectingLooker {
+                                        ProgressView()
+                                            .scaleEffect(0.6)
+                                            .frame(width: 14, height: 14)
+                                    } else {
+                                        Image(systemName: "link.badge.plus")
+                                    }
+                                    Text(isEnglish ? "Connect with Google" : "Conectar con Google")
+                                }
+                                .font(.callout)
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(isConnectingLooker)
+                        }
+                    }
+                    .padding()
+                    .background(Color.green.opacity(0.1))
                     .cornerRadius(8)
 
                     Divider()
@@ -227,6 +326,37 @@ struct SettingsView: View {
         longCacheRead = String(format: "%.2f", pricingManager.longContext.cacheRead)
     }
     
+    private func openLookerLogin() {
+        isConnectingLooker = true
+        let bridge = LookerWebBridge()
+        SettingsView.activeBridge = bridge
+
+        let lookerManager = lookerStudioManager
+
+        bridge.show(
+            onDataFetched: { data in
+                DispatchQueue.main.async { [self] in
+                    lookerManager.updateWithData(data)
+                    lookerManager.markConnected()
+                    self.isConnectingLooker = false
+                    SettingsView.activeBridge = nil
+                }
+            },
+            onDismiss: { [self] in
+                DispatchQueue.main.async {
+                    self.isConnectingLooker = false
+                    SettingsView.activeBridge = nil
+                }
+            }
+        )
+    }
+
+    private static var activeBridge: LookerWebBridge?
+
+    private func clearLookerCookies() {
+        lookerStudioManager.clearConnection()
+    }
+
     private func saveSettings() {
         // Save API key
         liteLLMManager.apiKey = apiKey

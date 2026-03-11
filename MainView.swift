@@ -15,17 +15,62 @@ struct MainView: View {
     @EnvironmentObject var pricingManager: PricingManager
     @EnvironmentObject var currencyManager: CurrencyManager
     @EnvironmentObject var liteLLMManager: LiteLLMManager
+    @EnvironmentObject var lookerStudioManager: LookerStudioManager
     @EnvironmentObject var updateManager: UpdateManager
     @EnvironmentObject var preferencesManager: PreferencesManager
     @State private var selectedTab = 0
     @State private var showSettings = false
     @State private var showAPIBlockedNotice = false
+    @State private var isReconnectingLooker = false
+    @State private var showLookerPromo = false
+    @State private var isConnectingFromPromo = false
 
     // Key for tracking if the API blocked notice has been shown (version-specific)
     private let apiBlockedNoticeKey = "api_blocked_notice_shown_v1_8"
+    private let lookerPromoKey = "looker_promo_shown_v1_12"
+
+    private func formatTokenCount(_ count: Int) -> String {
+        if count >= 1_000_000 {
+            return String(format: "%.1fM", Double(count) / 1_000_000)
+        } else if count >= 1_000 {
+            return String(format: "%.0fK", Double(count) / 1_000)
+        }
+        return "\(count)"
+    }
+
+    private var hasLookerError: Bool {
+        lookerStudioManager.isConfigured && lookerStudioManager.lastError != nil
+    }
+
+    private var dataSourceColor: Color {
+        if hasLookerError { return .red }
+        switch manager.dataSource {
+        case .api: return .green
+        case .lookerStudio: return .cyan
+        case .local: return .orange
+        }
+    }
+
+    private var dataSourceLabel: String {
+        let isEn = localizationManager.currentLanguage == .english
+        if hasLookerError {
+            let error = lookerStudioManager.lastError ?? ""
+            if error.lowercased().contains("expired") || error.lowercased().contains("reconnect") {
+                return isEn ? "Looker · Session expired" : "Looker · Sesión expirada"
+            }
+            return isEn ? "Looker · Connection error" : "Looker · Error de conexión"
+        }
+        switch manager.dataSource {
+        case .api: return isEn ? "API Data" : "Datos de API"
+        case .lookerStudio: return isEn ? "Looker Studio" : "Looker Studio"
+        case .local: return isEn ? "Local Data" : "Datos Locales"
+        }
+    }
 
     private func checkAndShowNotice() {
-        if !UserDefaults.standard.bool(forKey: apiBlockedNoticeKey) {
+        if !UserDefaults.standard.bool(forKey: lookerPromoKey) && !lookerStudioManager.isConfigured {
+            showLookerPromo = true
+        } else if !UserDefaults.standard.bool(forKey: apiBlockedNoticeKey) {
             showAPIBlockedNotice = true
         }
     }
@@ -33,6 +78,67 @@ struct MainView: View {
     private func dismissNotice() {
         UserDefaults.standard.set(true, forKey: apiBlockedNoticeKey)
         showAPIBlockedNotice = false
+    }
+
+    private func dismissLookerPromo() {
+        UserDefaults.standard.set(true, forKey: lookerPromoKey)
+        showLookerPromo = false
+    }
+
+    private func connectFromPromo() {
+        isConnectingFromPromo = true
+        let bridge = LookerWebBridge()
+        MainView.lookerBridge = bridge
+        let lookerManager = lookerStudioManager
+
+        bridge.show(
+            onDataFetched: { data in
+                DispatchQueue.main.async {
+                    lookerManager.updateWithData(data)
+                    lookerManager.markConnected()
+                    self.isConnectingFromPromo = false
+                    self.showLookerPromo = false
+                    UserDefaults.standard.set(true, forKey: self.lookerPromoKey)
+                    MainView.lookerBridge = nil
+                }
+            },
+            onDismiss: {
+                DispatchQueue.main.async {
+                    self.isConnectingFromPromo = false
+                    MainView.lookerBridge = nil
+                }
+            }
+        )
+    }
+
+    private static var lookerBridge: LookerWebBridge?
+
+    private func reconnectLooker() {
+        isReconnectingLooker = true
+        let bridge = LookerWebBridge()
+        MainView.lookerBridge = bridge
+        let lookerManager = lookerStudioManager
+
+        bridge.show(
+            onDataFetched: { data in
+                DispatchQueue.main.async {
+                    lookerManager.updateWithData(data)
+                    lookerManager.markConnected()
+                    self.isReconnectingLooker = false
+                    MainView.lookerBridge = nil
+                }
+            },
+            onDismiss: {
+                DispatchQueue.main.async {
+                    self.isReconnectingLooker = false
+                    MainView.lookerBridge = nil
+                }
+            }
+        )
+    }
+
+    private func dismissLookerError() {
+        lookerStudioManager.lastError = nil
     }
 
     func formatResetDate(_ date: Date) -> String {
@@ -166,11 +272,9 @@ struct MainView: View {
                     // Data source indicator
                     HStack(spacing: 4) {
                         Circle()
-                            .fill(manager.dataSource == .api ? Color.green : Color.orange)
+                            .fill(dataSourceColor)
                             .frame(width: 6, height: 6)
-                        Text(manager.dataSource == .api ?
-                             (localizationManager.currentLanguage == .english ? "API Data" : "Datos de API") :
-                             (localizationManager.currentLanguage == .english ? "Local Data" : "Datos Locales"))
+                        Text(dataSourceLabel)
                             .font(.caption2)
                             .foregroundColor(.secondary)
 
@@ -276,7 +380,7 @@ struct MainView: View {
             }
             .padding()
 
-            // Today's spend and budget reset (only show if using API)
+            // Today's spend and budget reset (show if using API or Looker Studio)
             if manager.dataSource == .api {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
@@ -303,6 +407,31 @@ struct MainView: View {
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+            } else if manager.dataSource == .lookerStudio {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(localizationManager.currentLanguage == .english ? "Monthly Spend" : "Gasto Mensual")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(currencyManager.formatAmount(lookerStudioManager.monthlySpend, language: localizationManager.currentLanguage))
+                            .font(.headline)
+                            .foregroundColor(.blue)
+                    }
+
+                    Spacer()
+
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(localizationManager.currentLanguage == .english ? "Total Tokens" : "Tokens Totales")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(formatTokenCount(lookerStudioManager.totalTokens))
+                            .font(.caption)
+                            .bold()
+                            .foregroundColor(.secondary)
                     }
                 }
                 .padding(.horizontal)
@@ -365,9 +494,20 @@ struct MainView: View {
             .padding(.horizontal)
 
             Divider()
-            
+
             // Content
-            if selectedTab == 0 {
+            if manager.isLoading && manager.monthlyData.isEmpty {
+                Spacer()
+                VStack(spacing: 12) {
+                    ProgressView()
+                        .scaleEffect(1.2)
+                    Text(localizationManager.currentLanguage == .english ?
+                         "Loading data..." : "Cargando datos...")
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+            } else if selectedTab == 0 {
                 MonthlyView()
             } else if selectedTab == 1 {
                 ProjectView()
@@ -409,12 +549,168 @@ struct MainView: View {
         }
         .frame(width: 450, height: 600)
         .overlay {
-            if showAPIBlockedNotice {
+            if showLookerPromo {
+                LookerPromoView(
+                    isConnecting: $isConnectingFromPromo,
+                    onConnect: connectFromPromo,
+                    onDismiss: dismissLookerPromo
+                )
+            } else if showAPIBlockedNotice {
                 APIBlockedNoticeView(onDismiss: dismissNotice)
+            } else if hasLookerError {
+                LookerExpiredView(
+                    isReconnecting: $isReconnectingLooker,
+                    onReconnect: reconnectLooker,
+                    onDismiss: dismissLookerError
+                )
             }
         }
         .onAppear {
             checkAndShowNotice()
+        }
+    }
+}
+
+// MARK: - Looker Studio Promo View
+
+struct LookerPromoView: View {
+    @Binding var isConnecting: Bool
+    let onConnect: () -> Void
+    let onDismiss: () -> Void
+    @EnvironmentObject var localizationManager: LocalizationManager
+
+    private var isEn: Bool { localizationManager.currentLanguage == .english }
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.75)
+                .ignoresSafeArea()
+
+            VStack(spacing: 16) {
+                Image(systemName: "chart.bar.xaxis.ascending")
+                    .font(.system(size: 48))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.blue, .cyan],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+
+                Text(isEn ? "Get Real Cost Data" : "Obtener Datos Reales de Coste")
+                    .font(.title2)
+                    .fontWeight(.bold)
+
+                Text(isEn ? "NEW" : "NUEVO")
+                    .font(.caption)
+                    .fontWeight(.heavy)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 3)
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(4)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    FeatureRow(
+                        icon: "checkmark.seal.fill",
+                        color: .green,
+                        text: isEn ?
+                            "Exact costs from company dashboard" :
+                            "Costes exactos del dashboard de la empresa"
+                    )
+                    FeatureRow(
+                        icon: "chart.pie.fill",
+                        color: .cyan,
+                        text: isEn ?
+                            "Breakdown by model (Opus, Sonnet, Haiku)" :
+                            "Desglose por modelo (Opus, Sonnet, Haiku)"
+                    )
+                    FeatureRow(
+                        icon: "calendar",
+                        color: .orange,
+                        text: isEn ?
+                            "Monthly spending history" :
+                            "Historial de gasto mensual"
+                    )
+                    FeatureRow(
+                        icon: "lock.shield.fill",
+                        color: .blue,
+                        text: isEn ?
+                            "100% secure — your credentials stay on your device" :
+                            "100% seguro — tus credenciales se quedan en tu dispositivo"
+                    )
+                }
+                .padding(.vertical, 8)
+
+                Text(isEn ?
+                     "Connect your Google account to access Looker Studio data. Authentication happens locally in a secure window — no data is sent to third parties." :
+                     "Conecta tu cuenta de Google para acceder a los datos de Looker Studio. La autenticacion se realiza localmente en una ventana segura — ningun dato se envia a terceros.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 8)
+
+                // Connect button
+                Button(action: onConnect) {
+                    HStack(spacing: 8) {
+                        if isConnecting {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                                .frame(width: 16, height: 16)
+                        } else {
+                            Image(systemName: "link.badge.plus")
+                        }
+                        Text(isEn ? "Connect with Google" : "Conectar con Google")
+                    }
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(
+                        LinearGradient(
+                            colors: [.blue, .cyan],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .foregroundColor(.white)
+                    .cornerRadius(10)
+                }
+                .buttonStyle(.plain)
+                .disabled(isConnecting)
+                .padding(.horizontal, 20)
+
+                // Later button
+                Button(action: onDismiss) {
+                    Text(isEn ? "Maybe later" : "Quiza mas tarde")
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(28)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color(NSColor.windowBackgroundColor))
+                    .shadow(radius: 20)
+            )
+            .padding(24)
+        }
+    }
+}
+
+struct FeatureRow: View {
+    let icon: String
+    let color: Color
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .foregroundColor(color)
+                .frame(width: 20)
+            Text(text)
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -469,6 +765,80 @@ struct APIBlockedNoticeView: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 40)
                 .padding(.top, 10)
+            }
+            .padding(30)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color(NSColor.windowBackgroundColor))
+                    .shadow(radius: 20)
+            )
+            .padding(30)
+        }
+    }
+}
+
+// MARK: - Looker Session Expired View
+
+struct LookerExpiredView: View {
+    @Binding var isReconnecting: Bool
+    let onReconnect: () -> Void
+    let onDismiss: () -> Void
+    @EnvironmentObject var localizationManager: LocalizationManager
+
+    private var isEn: Bool { localizationManager.currentLanguage == .english }
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.7)
+                .ignoresSafeArea()
+
+            VStack(spacing: 20) {
+                Image(systemName: "wifi.exclamationmark")
+                    .font(.system(size: 44))
+                    .foregroundColor(.red)
+
+                Text(isEn ? "Session Expired" : "Sesion Expirada")
+                    .font(.title2)
+                    .fontWeight(.bold)
+
+                Text(isEn ?
+                     "Your Looker Studio session has expired.\nReconnect with Google to continue getting accurate cost data." :
+                     "Tu sesion de Looker Studio ha expirado.\nReconecta con Google para seguir obteniendo datos de coste precisos.")
+                    .font(.body)
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal)
+
+                // Reconnect button
+                Button(action: onReconnect) {
+                    HStack(spacing: 8) {
+                        if isReconnecting {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                                .frame(width: 16, height: 16)
+                        } else {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                        }
+                        Text(isEn ? "Reconnect with Google" : "Reconectar con Google")
+                    }
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(10)
+                }
+                .buttonStyle(.plain)
+                .disabled(isReconnecting)
+                .padding(.horizontal, 40)
+
+                // Dismiss button
+                Button(action: onDismiss) {
+                    Text(isEn ? "Dismiss" : "Cerrar")
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
             }
             .padding(30)
             .background(
@@ -767,13 +1137,20 @@ struct ModelView: View {
         VStack(spacing: 0) {
             // Warning about data source
             HStack(spacing: 8) {
-                Image(systemName: manager.dataSource == .api ? "cloud.fill" : "info.circle.fill")
-                    .foregroundColor(manager.dataSource == .api ? .green : .blue)
-                
+                Image(systemName: manager.dataSource == .local ? "info.circle.fill" : "cloud.fill")
+                    .foregroundColor(manager.dataSource == .local ? .blue : .green)
+
                 if manager.dataSource == .api {
                     Text(localizationManager.currentLanguage == .english ?
                          "Model data retrieved from LiteLLM API" :
                          "Datos de modelos obtenidos de la API LiteLLM")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if manager.dataSource == .lookerStudio {
+                    Text(localizationManager.currentLanguage == .english ?
+                         "Data retrieved from Looker Studio dashboard" :
+                         "Datos obtenidos del dashboard de Looker Studio")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -788,7 +1165,7 @@ struct ModelView: View {
                 Spacer()
             }
             .padding()
-            .background(manager.dataSource == .api ? Color.green.opacity(0.1) : Color.blue.opacity(0.1))
+            .background(manager.dataSource == .local ? Color.blue.opacity(0.1) : Color.green.opacity(0.1))
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {

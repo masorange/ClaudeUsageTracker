@@ -20,6 +20,7 @@ class ClaudeUsageManager: ObservableObject {
 
     enum DataSource {
         case api
+        case lookerStudio
         case local
     }
 
@@ -28,6 +29,7 @@ class ClaudeUsageManager: ObservableObject {
     var pricingManager: PricingManager?
     var localizationManager: LocalizationManager?
     var liteLLMManager: LiteLLMManager?
+    var lookerStudioManager: LookerStudioManager?
     var accountFilter: AccountFilter = .all
 
     // Reusable date formatter (creating these is expensive)
@@ -37,10 +39,45 @@ class ClaudeUsageManager: ObservableObject {
         return formatter
     }()
 
+    init() {
+        NotificationCenter.default.addObserver(self, selector: #selector(handleLookerDataUpdated), name: .lookerDataUpdated, object: nil)
+    }
+
+    @objc private func handleLookerDataUpdated() {
+        guard let lookerManager = lookerStudioManager,
+              (lookerManager.totalSpend > 0 || lookerManager.monthlySpend > 0 || lookerManager.prevMonthSpend > 0) else { return }
+
+        // Use Looker for accurate totals
+        // totalSpend depends on dashboard date filter, so ensure it's at least monthlySpend
+        self.totalCost = max(lookerManager.totalSpend, lookerManager.monthlySpend)
+        self.currentMonthCost = lookerManager.monthlySpend
+        self.dataSource = .lookerStudio
+
+        // Use Looker model breakdown, scaled so they sum to totalCost
+        if !lookerManager.modelBreakdown.isEmpty {
+            let modelTotal = lookerManager.modelBreakdown.reduce(0.0) { $0 + $1.spend }
+            let scaleFactor = modelTotal > 0 ? self.totalCost / modelTotal : 1.0
+            self.modelData = lookerManager.modelBreakdown.map { entry in
+                let scaledCost = entry.spend * scaleFactor
+                var details = TokenBreakdown()
+                details.accumulatedCost = scaledCost
+                return (model: entry.model, cost: scaledCost, details: details)
+            }
+        }
+
+        // Adjust local monthlyData costs to match Looker's accurate values
+        applyLookerCostOverride()
+
+        self.lastUpdate = Date()
+        self.onDataUpdated?()
+    }
+
     // Cache for file modification dates to avoid re-processing unchanged files
     private var fileModificationCache: [String: Date] = [:]
     // Cache for processed file results
     private var fileResultsCache: [String: (monthlyData: [String: TokenBreakdown], projectBreakdown: TokenBreakdown, modelData: [String: TokenBreakdown])] = [:]
+    // Force cache invalidation on first load (after code updates)
+    private var cacheInitialized = false
     // Track last account filter to invalidate cache when it changes
     private var lastAccountFilter: AccountFilter = .all
     
@@ -117,12 +154,10 @@ class ClaudeUsageManager: ObservableObject {
     }
 
     func loadData(showLoading: Bool = true) {
-        // Notificar que está cargando solo si se solicita
+        // Set loading state immediately (must happen before async work starts)
         if showLoading {
-            DispatchQueue.main.async {
-                self.isLoading = true
-                self.onLoadingStateChanged?(true)
-            }
+            self.isLoading = true
+            self.onLoadingStateChanged?(true)
         }
 
         // Try API first if available
@@ -138,6 +173,11 @@ class ClaudeUsageManager: ObservableObject {
                     try await userInfoTask
                     try await todaySpendTask
 
+                    // Also fetch Looker Studio data if available (for real spend comparison)
+                    if let lookerManager = self.lookerStudioManager, lookerManager.hasValidCookies() {
+                        Task { await lookerManager.refreshData() }
+                    }
+
                     // Update UI with API data
                     await MainActor.run {
                         self.monthlyData = apiMonthlyData
@@ -148,11 +188,7 @@ class ClaudeUsageManager: ObservableObject {
                         self.currentMonthCost = self.monthlyData.first(where: { $0.month == currentMonth })?.cost ?? 0.0
                         self.totalCost = self.monthlyData.reduce(0) { $0 + $1.cost }
 
-                        print("💵 [Manager] Total Cost: $\(String(format: "%.2f", self.totalCost))")
-                        print("📅 [Manager] Monthly breakdown:")
-                        for month in self.monthlyData {
-                            print("   \(month.month): $\(String(format: "%.2f", month.cost))")
-                        }
+                        print("[Manager] Total Cost: $\(String(format: "%.2f", self.totalCost))")
 
                         // Project data still comes from local files (API doesn't provide per-project breakdown)
                         self.loadLocalProjectData()
@@ -166,25 +202,49 @@ class ClaudeUsageManager: ObservableObject {
                         self.onDataUpdated?()
                     }
                 } catch {
-                    // API failed, fallback to local calculation
-                    print("⚠️ API failed: \(error.localizedDescription). Falling back to local calculation.")
-                    self.loadLocalData(showLoading: showLoading)
+                    // API failed, try Looker Studio before falling back to local
+                    print("[API] Failed: \(error.localizedDescription)")
+                    self.loadWithLookerStudioOrLocal(showLoading: showLoading)
                 }
             }
             return
         }
 
-        // No API key or not valid, use local calculation
+        // No API key, try Looker Studio or local
+        loadWithLookerStudioOrLocal(showLoading: showLoading)
+    }
+
+    private func loadWithLookerStudioOrLocal(showLoading: Bool) {
+        if let lookerManager = lookerStudioManager, lookerManager.hasValidCookies() {
+            // Load local data for per-token breakdown, but don't clear isLoading yet
+            loadLocalData(showLoading: false, forTokenBreakdownOnly: true)
+
+            // Refresh Looker for accurate totals and model breakdown
+            Task {
+                await lookerManager.refreshData()
+                // handleLookerDataUpdated will fire and override totals/model data
+                await MainActor.run {
+                    if showLoading {
+                        self.isLoading = false
+                        self.onLoadingStateChanged?(false)
+                    }
+                }
+            }
+            return
+        }
+
+        // No Looker Studio cookies, use local calculation
         loadLocalData(showLoading: showLoading)
     }
 
-    private func loadLocalData(showLoading: Bool) {
+    private func loadLocalData(showLoading: Bool, forTokenBreakdownOnly: Bool = false) {
         // Process data in background
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
 
-            // Invalidate cache if account filter changed
-            if self.lastAccountFilter != self.accountFilter {
+            // Invalidate cache if account filter changed or processing logic updated
+            if self.lastAccountFilter != self.accountFilter || !self.cacheInitialized {
+                self.cacheInitialized = true
                 self.fileModificationCache.removeAll()
                 self.fileResultsCache.removeAll()
                 self.lastAccountFilter = self.accountFilter
@@ -264,12 +324,41 @@ class ClaudeUsageManager: ObservableObject {
                 var currentTurnMessages: [(timestamp: String?, monthKey: String?, input: Int, cacheCreation: Int, cacheRead: Int, output: Int, contextSize: Int, model: String?)] = []
                 var lastTimestamp: Date?
 
+                // Deduplicate: Claude Code writes multiple JSONL entries per API call
+                // (streaming chunks). Only keep the last entry per message ID.
+                var seenMessageIds: Set<String> = []
+
+                // First pass: collect last entry per message ID
+                var deduplicatedLines: [(json: [String: Any], message: [String: Any])] = []
+                var lastEntryForId: [String: Int] = [:] // msg_id -> index in deduplicatedLines
+
                 for line in lines where !line.isEmpty {
                     guard let data = line.data(using: .utf8),
                           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                           let message = json["message"] as? [String: Any] else {
                         continue
                     }
+
+                    let messageId = message["id"] as? String
+                    let hasUsage = message["usage"] != nil
+
+                    if let msgId = messageId, hasUsage {
+                        if let existingIdx = lastEntryForId[msgId] {
+                            // Replace previous entry with this one (later = more complete)
+                            deduplicatedLines[existingIdx] = (json: json, message: message)
+                        } else {
+                            lastEntryForId[msgId] = deduplicatedLines.count
+                            deduplicatedLines.append((json: json, message: message))
+                        }
+                    } else {
+                        // Non-usage entries (user messages, etc.) pass through
+                        deduplicatedLines.append((json: json, message: message))
+                    }
+                }
+
+                for entry in deduplicatedLines {
+                    let json = entry.json
+                    let message = entry.message
 
                     // Filter by account type based on message ID prefix
                     if let messageId = message["id"] as? String {
@@ -409,30 +498,35 @@ class ClaudeUsageManager: ObservableObject {
                 let simplifiedName = self.simplifyProjectName(project)
                 return (project: simplifiedName, cost: cost, details: breakdown)
             }.sorted { $0.cost > $1.cost }
-            
-            self.modelData = modelDict.compactMap { (model, breakdown) in
-                let cost = self.calculateCost(breakdown)
-                // Only include models with actual spend
-                guard cost > 0 else { return nil }
-                return (model: model, cost: cost, details: breakdown)
-            }.sorted { $0.cost > $1.cost }
 
-            // Calculate current month cost
-            let currentMonth = self.getCurrentMonthKey()
-            self.currentMonthCost = self.monthlyData.first(where: { $0.month == currentMonth })?.cost ?? 0.0
+            // When loading for token breakdown only (Looker active),
+            // don't override totals, dataSource, or model data
+            if !forTokenBreakdownOnly {
+                self.modelData = modelDict.compactMap { (model, breakdown) in
+                    let cost = self.calculateCost(breakdown)
+                    guard cost > 0 else { return nil }
+                    return (model: model, cost: cost, details: breakdown)
+                }.sorted { $0.cost > $1.cost }
 
-            // Calculate total
-            self.totalCost = self.monthlyData.reduce(0) { $0 + $1.cost }
+                let currentMonth = self.getCurrentMonthKey()
+                self.currentMonthCost = self.monthlyData.first(where: { $0.month == currentMonth })?.cost ?? 0.0
+                self.totalCost = self.monthlyData.reduce(0) { $0 + $1.cost }
+                self.dataSource = .local
+            } else {
+                // Looker active: keep current + previous month local data (for token breakdown)
+                // Older months will come exclusively from Looker data
+                let currentMonth = self.getCurrentMonthKey()
+                let prevMonth = self.getPreviousMonthKey()
+                self.monthlyData = self.monthlyData.filter { $0.month == currentMonth || $0.month == prevMonth }
+                self.applyLookerCostOverride()
+            }
 
-            self.dataSource = .local
             self.lastUpdate = Date()
 
-            // Finalizar carga solo si se estaba mostrando
             if showLoading {
                 self.isLoading = false
             }
 
-            // Notificar que los datos se actualizaron
             self.onDataUpdated?()
         }
         }
@@ -510,10 +604,103 @@ class ClaudeUsageManager: ObservableObject {
         return inputCost + cacheCreationCost + cacheReadCost + outputCost
     }
     
+    /// Adjusts monthlyData to use Looker's accurate costs.
+    /// Always shows current + previous month. Older months from monthlyHistory are included for navigation.
+    private func applyLookerCostOverride() {
+        guard let lookerManager = lookerStudioManager,
+              (lookerManager.monthlySpend > 0 || lookerManager.prevMonthSpend > 0) else { return }
+
+        let currentMonth = getCurrentMonthKey()
+        let prevMonth = getPreviousMonthKey()
+
+        // Build month → cost map from all Looker sources
+        var lookerMonths: [String: Double] = [:]
+
+        // Add months from intercepted monthlyHistory (older months)
+        for entry in lookerManager.monthlyHistory {
+            let monthKey: String
+            if entry.month.count == 6 {
+                monthKey = String(entry.month.prefix(4)) + "-" + String(entry.month.suffix(2))
+            } else {
+                monthKey = entry.month
+            }
+            lookerMonths[monthKey, default: 0] += entry.spend
+        }
+
+        // Override current + previous month with custom API values (more accurate/fresh)
+        if lookerManager.monthlySpend > 0 {
+            lookerMonths[currentMonth] = lookerManager.monthlySpend
+        }
+        if lookerManager.prevMonthSpend > 0 {
+            lookerMonths[prevMonth] = lookerManager.prevMonthSpend
+        }
+
+        let inputRate = pricingManager?.standardContext.inputTokens ?? 3.0
+        let outputRate = pricingManager?.standardContext.outputTokens ?? 15.0
+        let cacheCreateRate = pricingManager?.standardContext.cacheCreation ?? 3.75
+        let cacheReadRate = pricingManager?.standardContext.cacheRead ?? 0.30
+
+        // Build the filtered monthly array
+        var filteredMonthly: [(month: String, cost: Double, details: TokenBreakdown)] = []
+
+        for (monthKey, lookerCost) in lookerMonths {
+            // Try to enrich with local token breakdown (current or previous month)
+            if let localEntry = monthlyData.first(where: { $0.month == monthKey }),
+               localEntry.cost > 0 {
+                var details = localEntry.details
+
+                let localInputEst = Double(details.inputTokens) * inputRate / 1_000_000
+                let localCacheCreateEst = Double(details.cacheCreationTokens) * cacheCreateRate / 1_000_000
+                let localCacheReadEst = Double(details.cacheReadTokens) * cacheReadRate / 1_000_000
+                let localOutputEst = Double(details.outputTokens) * outputRate / 1_000_000
+                let localTotalEst = localInputEst + localCacheCreateEst + localCacheReadEst + localOutputEst
+
+                if localTotalEst > 0 {
+                    let scaleFactor = lookerCost / localTotalEst
+                    details.estimatedInputCost = localInputEst * scaleFactor
+                    details.estimatedCacheCreationCost = localCacheCreateEst * scaleFactor
+                    details.estimatedCacheReadCost = localCacheReadEst * scaleFactor
+                    details.estimatedOutputCost = localOutputEst * scaleFactor
+                }
+                details.accumulatedCost = lookerCost
+
+                filteredMonthly.append((month: monthKey, cost: lookerCost, details: details))
+            } else if lookerCost > 0 {
+                // No local data: Looker cost only
+                var details = TokenBreakdown()
+                details.accumulatedCost = lookerCost
+                filteredMonthly.append((month: monthKey, cost: lookerCost, details: details))
+            }
+        }
+
+        // Ensure previous month always exists (even with $0)
+        if !filteredMonthly.contains(where: { $0.month == prevMonth }) {
+            var details = TokenBreakdown()
+            details.accumulatedCost = 0
+            filteredMonthly.append((month: prevMonth, cost: 0, details: details))
+        }
+
+        // Ensure current month always exists (even with $0)
+        if !filteredMonthly.contains(where: { $0.month == currentMonth }) {
+            var details = TokenBreakdown()
+            details.accumulatedCost = 0
+            filteredMonthly.append((month: currentMonth, cost: 0, details: details))
+        }
+
+        monthlyData = filteredMonthly.sorted { $0.month > $1.month }
+    }
+
     private func getCurrentMonthKey() -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM"
         return formatter.string(from: Date())
+    }
+
+    private func getPreviousMonthKey() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM"
+        let prevMonth = Calendar.current.date(byAdding: .month, value: -1, to: Date())!
+        return formatter.string(from: prevMonth)
     }
     
     private func getClaudeProjectsPath() -> URL {

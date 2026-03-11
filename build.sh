@@ -4,7 +4,7 @@ set -e
 
 echo "🔨 Compilando ClaudeUsageTracker..."
 
-SWIFT_FILES="ClaudeUsageTrackerApp.swift ClaudeUsageManager.swift LocalizationManager.swift PricingManager.swift PreferencesManager.swift CurrencyManager.swift LiteLLMManager.swift UpdateManager.swift SettingsView.swift MainView.swift"
+SWIFT_FILES="ClaudeUsageTrackerApp.swift ClaudeUsageManager.swift LocalizationManager.swift PricingManager.swift PreferencesManager.swift CurrencyManager.swift LiteLLMManager.swift LookerStudioManager.swift LookerAuthWindow.swift UpdateManager.swift SettingsView.swift MainView.swift"
 
 # Compilar para ARM64 (Apple Silicon)
 echo "  → Compilando para Apple Silicon (arm64)..."
@@ -12,6 +12,7 @@ swiftc \
     -target arm64-apple-macos13.0 \
     -framework AppKit \
     -framework SwiftUI \
+    -framework WebKit \
     -o ClaudeUsageTracker_arm64 \
     $SWIFT_FILES
 
@@ -21,6 +22,7 @@ swiftc \
     -target x86_64-apple-macos13.0 \
     -framework AppKit \
     -framework SwiftUI \
+    -framework WebKit \
     -o ClaudeUsageTracker_x86_64 \
     $SWIFT_FILES
 
@@ -70,7 +72,7 @@ cat > "ClaudeUsageTracker.app/Contents/Info.plist" << 'EOF'
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.12.0</string>
+    <string>1.13.0</string>
     <key>CFBundleVersion</key>
     <string>10</string>
     <key>LSMinimumSystemVersion</key>
