@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import SwiftUI
 
 extension Notification.Name {
     static let lookerDataUpdated = Notification.Name("lookerDataUpdated")
@@ -23,6 +24,7 @@ class LookerStudioManager: ObservableObject {
     @Published var prevMonthTokens: Int = 0
     @Published var monthlyHistory: [MonthlyEntry] = []
     @Published var modelBreakdown: [ModelEntry] = []
+    @Published var team: String = ""
 
     // Legacy cookie fields (kept for manual entry fallback)
     @Published var securePSID: String = "" {
@@ -104,6 +106,9 @@ class LookerStudioManager: ObservableObject {
         if !data.modelBreakdown.isEmpty {
             self.modelBreakdown = data.modelBreakdown
         }
+        if !data.team.isEmpty {
+            self.team = data.team
+        }
         self.lastError = nil
         NotificationCenter.default.post(name: .lookerDataUpdated, object: nil)
     }
@@ -178,6 +183,7 @@ class LookerStudioManager: ObservableObject {
         var prevMonthTokens: Int = 0
         var monthlyHistory: [MonthlyEntry] = []
         var modelBreakdown: [ModelEntry] = []
+        var team: String = ""
     }
 
     struct MonthlyEntry {
@@ -190,5 +196,30 @@ class LookerStudioManager: ObservableObject {
         var model: String
         var spend: Double = 0.0
         var tokens: Int = 0
+    }
+
+    // MARK: - Tier Detection
+
+    struct TierInfo {
+        let name: String
+        let monthlyLimit: Double
+        let color: Color
+    }
+
+    static let tiers: [(keyword: String, info: TierInfo)] = [
+        ("iron", TierInfo(name: "Iron", monthlyLimit: 100, color: .gray)),
+        ("bronze", TierInfo(name: "Bronze", monthlyLimit: 200, color: .brown)),
+        ("silver", TierInfo(name: "Silver", monthlyLimit: 500, color: Color(.systemGray))),
+        ("gold", TierInfo(name: "Gold", monthlyLimit: 1000, color: .yellow)),
+    ]
+
+    static func detectTier(from team: String) -> TierInfo? {
+        let lowered = team.lowercased()
+        for tier in tiers {
+            if lowered.contains(tier.keyword) {
+                return tier.info
+            }
+        }
+        return nil
     }
 }

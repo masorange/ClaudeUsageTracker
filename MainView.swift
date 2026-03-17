@@ -42,6 +42,63 @@ struct MainView: View {
         lookerStudioManager.isConfigured && lookerStudioManager.lastError != nil
     }
 
+    @ViewBuilder
+    private var tierUsageView: some View {
+        let tier = LookerStudioManager.detectTier(from: lookerStudioManager.team)
+
+        HStack(spacing: 6) {
+            // Team name
+            Text(lookerStudioManager.team)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+
+            if let tier = tier {
+                // Tier badge
+                Text(tier.name)
+                    .font(.caption2)
+                    .fontWeight(.semibold)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(tier.color.opacity(0.2))
+                    .foregroundColor(tier.color == .yellow ? .orange : tier.color)
+                    .cornerRadius(4)
+            }
+
+            Spacer()
+        }
+
+        if let tier = tier {
+            let spent = lookerStudioManager.monthlySpend
+            let limit = tier.monthlyLimit
+            let ratio = min(spent / limit, 1.0)
+            let barColor: Color = ratio > 0.9 ? .red : (ratio > 0.75 ? .orange : .green)
+
+            VStack(spacing: 2) {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(Color.gray.opacity(0.2))
+                            .frame(height: 6)
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(barColor)
+                            .frame(width: max(geo.size.width * ratio, 2), height: 6)
+                    }
+                }
+                .frame(height: 6)
+
+                HStack {
+                    Text(currencyManager.formatAmount(lookerStudioManager.monthlySpend, language: localizationManager.currentLanguage))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text("\(Int(ratio * 100))% of \(currencyManager.formatAmount(limit, language: localizationManager.currentLanguage))")
+                        .font(.caption2)
+                        .foregroundColor(barColor)
+                }
+            }
+        }
+    }
+
     private var dataSourceColor: Color {
         if hasLookerError { return .red }
         switch manager.dataSource {
@@ -412,26 +469,33 @@ struct MainView: View {
                 .padding(.horizontal)
                 .padding(.vertical, 8)
             } else if manager.dataSource == .lookerStudio {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(localizationManager.currentLanguage == .english ? "Monthly Spend" : "Gasto Mensual")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text(currencyManager.formatAmount(lookerStudioManager.monthlySpend, language: localizationManager.currentLanguage))
-                            .font(.headline)
-                            .foregroundColor(.blue)
+                VStack(spacing: 6) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(localizationManager.currentLanguage == .english ? "Monthly Spend" : "Gasto Mensual")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text(currencyManager.formatAmount(lookerStudioManager.monthlySpend, language: localizationManager.currentLanguage))
+                                .font(.headline)
+                                .foregroundColor(.blue)
+                        }
+
+                        Spacer()
+
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(localizationManager.currentLanguage == .english ? "Total Tokens" : "Tokens Totales")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text(formatTokenCount(lookerStudioManager.totalTokens))
+                                .font(.caption)
+                                .bold()
+                                .foregroundColor(.secondary)
+                        }
                     }
 
-                    Spacer()
-
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(localizationManager.currentLanguage == .english ? "Total Tokens" : "Tokens Totales")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text(formatTokenCount(lookerStudioManager.totalTokens))
-                            .font(.caption)
-                            .bold()
-                            .foregroundColor(.secondary)
+                    // Tier & usage bar
+                    if !lookerStudioManager.team.isEmpty {
+                        tierUsageView
                     }
                 }
                 .padding(.horizontal)

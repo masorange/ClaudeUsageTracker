@@ -254,6 +254,7 @@ class LookerWebBridge: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         // Collect all single-value KPIs with their response index for debugging
         var allDoubleKPIs: [(index: Int, value: Double)] = []
         var allLongKPIs: [(index: Int, value: Int)] = []
+        var allStringKPIs: [String] = []
 
         // Daily history data from 3-column responses
         var dailySpendByModel: [(date: (year: Int, month: Int, day: Int), model: String, spend: Double)] = []
@@ -285,6 +286,10 @@ class LookerWebBridge: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
                 } else if let val = extractLongValue(from: columns.first) {
                     allLongKPIs.append((index: idx, value: val))
                     debugLines.append("  -> long KPI: \(val)")
+                } else if let strValues = extractStringArray(from: columns.first),
+                          let strVal = strValues.first, !strVal.isEmpty {
+                    allStringKPIs.append(strVal)
+                    debugLines.append("  -> str KPI: \(strVal)")
                 } else {
                     debugLines.append("  -> unknown single col")
                 }
@@ -548,10 +553,27 @@ class LookerWebBridge: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
             }
         }
 
-        os_log("Intercepted: totalSpend=%.2f, monthlySpend=%.2f, prevMonthSpend=%.2f, totalTokens=%d, monthlyTokens=%d, models=%d, months=%d",
+        // === Identify team from single string KPIs ===
+        if !allStringKPIs.isEmpty {
+            debugLines.append("String KPIs: \(allStringKPIs)")
+            // Team: contains dash or tier keyword, is NOT an email, is NOT a full name (has spaces)
+            for str in allStringKPIs {
+                let isEmail = str.contains("@")
+                let hasTierKeyword = ["iron", "bronze", "silver", "gold"].contains(where: { str.lowercased().contains($0) })
+                let hasDash = str.contains("-")
+                let hasSpace = str.contains(" ")
+                if !isEmail && (hasTierKeyword || (hasDash && !hasSpace)) {
+                    result.team = str
+                    debugLines.append("  -> team: \(str)")
+                    break
+                }
+            }
+        }
+
+        os_log("Intercepted: totalSpend=%.2f, monthlySpend=%.2f, prevMonthSpend=%.2f, totalTokens=%d, monthlyTokens=%d, models=%d, months=%d, team=%{public}@",
                log: logger, type: .default,
                result.totalSpend, result.monthlySpend, result.prevMonthSpend, result.totalTokens, result.monthlyTokens,
-               result.modelBreakdown.count, result.monthlyHistory.count)
+               result.modelBreakdown.count, result.monthlyHistory.count, result.team)
 
         // Determine if we have enough data to skip the custom API
         let hasSpendKPIs = result.totalSpend > 0 && result.monthlySpend > 0
