@@ -255,7 +255,10 @@ class LookerWebBridge: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var allDoubleKPIs: [(index: Int, value: Double)] = []
         var allLongKPIs: [(index: Int, value: Int)] = []
 
-        // Build debug summary to log at once (avoids os_log rate limiting)
+        // Daily history data from 3-column responses
+        var dailySpendByModel: [(date: (year: Int, month: Int, day: Int), model: String, spend: Double)] = []
+        var dailyTokens: [(date: (year: Int, month: Int, day: Int), tokens: Int)] = []
+
         var debugLines: [String] = []
 
         for (idx, response) in interceptedResponses.enumerated() {
@@ -288,7 +291,66 @@ class LookerWebBridge: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
                 continue
             }
 
-            // === MODEL BREAKDOWN: string[] + double[] (model names + spend) ===
+            // === 3-COLUMN: dateColumn + stringColumn + doubleColumn (daily spend per model) ===
+            if columns.count == 3 && colTypes.contains("dateColumn") && colTypes.contains("stringColumn") && colTypes.contains("doubleColumn") {
+                let dateCol = columns.first(where: { $0["dateColumn"] != nil })
+                let strCol = columns.first(where: { $0["stringColumn"] != nil })
+                let dblCol = columns.first(where: { $0["doubleColumn"] != nil })
+
+                if let dates = extractDateArrayWithDay(from: dateCol),
+                   let models = extractStringArray(from: strCol),
+                   let spends = extractDoubleArray(from: dblCol),
+                   dates.count == models.count {
+
+                    for (i, date) in dates.enumerated() {
+                        let model = i < models.count ? models[i] : "unknown"
+                        let spend = i < spends.count ? spends[i] : 0
+                        dailySpendByModel.append((date: date, model: model, spend: spend))
+                    }
+                    debugLines.append("  -> daily model history: \(dates.count) entries")
+                    continue
+                }
+            }
+
+            // === 3-COLUMN: dateColumn + doubleColumn + longColumn (daily spend + tokens) ===
+            if columns.count == 3 && colTypes.contains("dateColumn") && colTypes.contains("doubleColumn") && colTypes.contains("longColumn") {
+                let dateCol = columns.first(where: { $0["dateColumn"] != nil })
+                let dblCol = columns.first(where: { $0["doubleColumn"] != nil })
+                let longCol = columns.first(where: { $0["longColumn"] != nil })
+
+                if let dates = extractDateArrayWithDay(from: dateCol),
+                   let tokens = extractLongArray(from: longCol) {
+
+                    for (i, date) in dates.enumerated() {
+                        let t = i < tokens.count ? tokens[i] : 0
+                        dailyTokens.append((date: date, tokens: t))
+                    }
+                    debugLines.append("  -> daily tokens: \(dates.count) entries")
+
+                    // Also use the double column as daily spend if we don't have model-level data
+                    if let spends = extractDoubleArray(from: dblCol), dailySpendByModel.isEmpty {
+                        for (i, date) in dates.enumerated() {
+                            let spend = i < spends.count ? spends[i] : 0
+                            dailySpendByModel.append((date: date, model: "total", spend: spend))
+                        }
+                        debugLines.append("  -> also using as daily spend fallback: \(dates.count) entries")
+                    }
+                    continue
+                }
+            }
+
+            // === 2-COLUMN: doubleColumn + doubleColumn (aggregate metric pairs) ===
+            if columns.count == 2 && colTypes.filter({ $0 == "doubleColumn" }).count == 2 {
+                let vals = columns.compactMap { extractDoubleValue(from: $0) }
+                debugLines.append("  -> double pair: \(vals.map { String(format: "%.2f", $0) }.joined(separator: ", "))")
+                // Collect them as KPIs
+                for val in vals {
+                    allDoubleKPIs.append((index: idx, value: val))
+                }
+                continue
+            }
+
+            // === 2-COLUMN: MODEL BREAKDOWN: string[] + double[] (model names + spend) ===
             if colTypes.contains("stringColumn") && colTypes.contains("doubleColumn"),
                result.modelBreakdown.isEmpty {
                 let strColIdx = columns.firstIndex(where: { $0["stringColumn"] != nil })
@@ -310,13 +372,12 @@ class LookerWebBridge: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
                 }
             }
 
-            // === MONTHLY HISTORY: dateColumn + double[] (dates + spend) ===
+            // === 2-COLUMN: MONTHLY HISTORY: dateColumn + double[] (dates + spend) ===
             if colTypes.contains("dateColumn") && colTypes.contains("doubleColumn") {
                 let dateCol = columns.first(where: { $0["dateColumn"] != nil })
                 let dateResult = extractDateArray(from: dateCol)
 
                 if dateResult == nil {
-                    // Log raw dateColumn structure for debugging
                     if let dc = dateCol, let dateData = dc["dateColumn"] as? [String: Any] {
                         let keys = dateData.keys.joined(separator: ",")
                         if let rawVals = dateData["values"] {
@@ -343,7 +404,6 @@ class LookerWebBridge: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
                 debugLines.append("  -> dates=\(dateEntries.count), spends=\(spendValues.count)")
 
                 if dateEntries.count > 1 && dateEntries.count >= result.monthlyHistory.count {
-                    // Aggregate daily entries into monthly totals
                     var monthlyTotals: [String: Double] = [:]
                     for (i, de) in dateEntries.enumerated() {
                         let monthKey = String(format: "%04d%02d", de.year, de.month)
@@ -365,11 +425,72 @@ class LookerWebBridge: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
             }
         }
 
-        // Log all debug info as a single message to avoid rate limiting
+        // === Derive model breakdown from daily model history if 2-column breakdown was empty ===
+        if result.modelBreakdown.isEmpty && !dailySpendByModel.isEmpty {
+            var modelTotals: [String: Double] = [:]
+            for entry in dailySpendByModel {
+                if entry.model != "total" {
+                    modelTotals[entry.model, default: 0] += entry.spend
+                }
+            }
+            if !modelTotals.isEmpty {
+                result.modelBreakdown = modelTotals
+                    .sorted { $0.value > $1.value }
+                    .map { LookerStudioManager.ModelEntry(model: $0.key, spend: $0.value) }
+                debugLines.append("Derived models from daily history: \(result.modelBreakdown.map { "\($0.model)=$\(String(format: "%.2f", $0.spend))" }.joined(separator: ", "))")
+            }
+        }
+
+        // === Derive monthly history from daily data if 2-column history was empty ===
+        if result.monthlyHistory.isEmpty && !dailySpendByModel.isEmpty {
+            var monthlyTotals: [String: Double] = [:]
+            for entry in dailySpendByModel {
+                let monthKey = String(format: "%04d%02d", entry.date.year, entry.date.month)
+                monthlyTotals[monthKey, default: 0] += entry.spend
+            }
+            // If we have per-model data, sum might double-count; deduplicate by using daily totals
+            if dailySpendByModel.contains(where: { $0.model != "total" }) {
+                // Group by date and sum per-model spends for each day
+                var dailyTotals: [String: Double] = [:]
+                for entry in dailySpendByModel where entry.model != "total" {
+                    let dayKey = String(format: "%04d%02d%02d", entry.date.year, entry.date.month, entry.date.day)
+                    dailyTotals[dayKey, default: 0] += entry.spend
+                }
+                monthlyTotals = [:]
+                for (dayKey, spend) in dailyTotals {
+                    let monthKey = String(dayKey.prefix(6))
+                    monthlyTotals[monthKey, default: 0] += spend
+                }
+            }
+            let entries = monthlyTotals.sorted { $0.key < $1.key }.map {
+                LookerStudioManager.MonthlyEntry(month: $0.key, spend: $0.value)
+            }
+            if entries.reduce(0, { $0 + $1.spend }) > 1 {
+                result.monthlyHistory = entries
+                debugLines.append("Derived history from daily data: \(entries.map { "\($0.month)=$\(String(format: "%.2f", $0.spend))" }.joined(separator: ", "))")
+            }
+        }
+
+        // === Populate monthly tokens from daily token data ===
+        if !dailyTokens.isEmpty {
+            var monthlyTokenTotals: [String: Int] = [:]
+            for entry in dailyTokens {
+                let monthKey = String(format: "%04d%02d", entry.date.year, entry.date.month)
+                monthlyTokenTotals[monthKey, default: 0] += entry.tokens
+            }
+            // Enrich monthly history entries with token counts
+            for i in result.monthlyHistory.indices {
+                if let tokens = monthlyTokenTotals[result.monthlyHistory[i].month] {
+                    result.monthlyHistory[i].tokens = tokens
+                }
+            }
+            debugLines.append("Enriched history with tokens: \(monthlyTokenTotals.map { "\($0.key)=\($0.value)" }.joined(separator: ", "))")
+        }
+
+        // Log debug info
         let debugSummary = debugLines.joined(separator: "\n")
         os_log("Response details:\n%{public}@", log: logger, type: .error, debugSummary)
 
-        // Log KPIs summary
         let kpiSummary = "Doubles: \(allDoubleKPIs.map { "[#\($0.index)]=\(String(format: "%.2f", $0.value))" }.joined(separator: ", ")) | Longs: \(allLongKPIs.map { "[#\($0.index)]=\($0.value)" }.joined(separator: ", "))"
         os_log("KPIs: %{public}@", log: logger, type: .error, kpiSummary)
 
@@ -391,36 +512,78 @@ class LookerWebBridge: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
             result.monthlyTokens = sortedLongs[1]
         }
 
-        // If we have monthly history, derive monthly spend from current month (already aggregated)
+        // === Derive monthly KPIs from daily data (preferred over custom API) ===
+        let currentMonthKey = getCurrentMonthKey()
+        let prevMonthKey = getPreviousMonthKey()
+
         if !result.monthlyHistory.isEmpty {
-            let currentMonthKey = getCurrentMonthKey()
             let currentMonthSpend = result.monthlyHistory
                 .filter { $0.month == currentMonthKey }
                 .reduce(0) { $0 + $1.spend }
             if currentMonthSpend > 0 {
                 result.monthlySpend = currentMonthSpend
             }
+
+            let prevMonthSpend = result.monthlyHistory
+                .filter { $0.month == prevMonthKey }
+                .reduce(0) { $0 + $1.spend }
+            if prevMonthSpend > 0 {
+                result.prevMonthSpend = prevMonthSpend
+            }
         }
 
-        os_log("Intercepted: totalSpend=%.2f, monthlySpend=%.2f, totalTokens=%d, models=%d, months=%d",
+        if !dailyTokens.isEmpty {
+            let currentMonthTokens = dailyTokens
+                .filter { String(format: "%04d%02d", $0.date.year, $0.date.month) == currentMonthKey }
+                .reduce(0) { $0 + $1.tokens }
+            if currentMonthTokens > 0 {
+                result.monthlyTokens = currentMonthTokens
+            }
+
+            let prevMonthTokens = dailyTokens
+                .filter { String(format: "%04d%02d", $0.date.year, $0.date.month) == prevMonthKey }
+                .reduce(0) { $0 + $1.tokens }
+            if prevMonthTokens > 0 {
+                result.prevMonthTokens = prevMonthTokens
+            }
+        }
+
+        os_log("Intercepted: totalSpend=%.2f, monthlySpend=%.2f, prevMonthSpend=%.2f, totalTokens=%d, monthlyTokens=%d, models=%d, months=%d",
                log: logger, type: .default,
-               result.totalSpend, result.monthlySpend, result.totalTokens,
+               result.totalSpend, result.monthlySpend, result.prevMonthSpend, result.totalTokens, result.monthlyTokens,
                result.modelBreakdown.count, result.monthlyHistory.count)
 
-        if !result.modelBreakdown.isEmpty || !result.monthlyHistory.isEmpty {
-            // Store intercepted data (models + history) and fire custom API for accurate monthly KPIs
-            pendingResult = result
-            os_log("Firing custom API for accurate monthly KPIs", log: logger, type: .default)
-            executeCustomAPIFetch()
+        // Determine if we have enough data to skip the custom API
+        let hasSpendKPIs = result.totalSpend > 0 && result.monthlySpend > 0
+        let hasDetailData = !result.modelBreakdown.isEmpty || !result.monthlyHistory.isEmpty
+
+        if hasSpendKPIs && hasDetailData {
+            // We have everything we need - deliver directly without custom API
+            os_log("Sufficient data from interceptor, skipping custom API", log: logger, type: .default)
+            dataFetched = true
+            DispatchQueue.main.async {
+                self.onDataFetched?(result)
+                self.cleanup()
+            }
+        } else if hasDetailData {
+            // Have models/history but missing some KPIs - still deliver what we have
+            // rather than depending on custom API with potentially stale component IDs
+            os_log("Partial KPIs but have detail data, delivering without custom API", log: logger, type: .default)
+            dataFetched = true
+            DispatchQueue.main.async {
+                self.onDataFetched?(result)
+                self.cleanup()
+            }
         } else if result.totalSpend > 0 {
-            // No model/history data but have KPIs - deliver as-is
+            // No detail data but have KPIs - deliver as-is
             dataFetched = true
             DispatchQueue.main.async {
                 self.onDataFetched?(result)
                 self.cleanup()
             }
         } else {
-            os_log("No meaningful data, falling back to custom API call", log: logger, type: .default)
+            // No useful data at all - fall back to custom API as last resort
+            os_log("No meaningful data from interceptor, falling back to custom API", log: logger, type: .default)
             executeCustomAPIFetch()
         }
     }
@@ -429,6 +592,14 @@ class LookerWebBridge: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMM"
         return formatter.string(from: Date())
+    }
+
+    private func getPreviousMonthKey() -> String {
+        let calendar = Calendar.current
+        let prevMonth = calendar.date(byAdding: .month, value: -1, to: Date())!
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMM"
+        return formatter.string(from: prevMonth)
     }
 
     // MARK: - Value Extraction Helpers
@@ -484,6 +655,26 @@ class LookerWebBridge: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
                 if let d = item as? Double { return d }
                 if let n = item as? NSNumber { return n.doubleValue }
                 return 0.0
+            }
+        }
+        return nil
+    }
+
+    /// Extract an array of Ints from a longColumn
+    private func extractLongArray(from column: [String: Any]?) -> [Int]? {
+        guard let col = column,
+              let longCol = col["longColumn"] as? [String: Any],
+              let rawValues = longCol["values"] else { return nil }
+
+        if let values = rawValues as? [String] {
+            return values.map { Int($0) ?? 0 }
+        }
+        if let arr = rawValues as? [Any] {
+            return arr.map { item -> Int in
+                if let n = item as? NSNumber { return n.intValue }
+                if let s = item as? String { return Int(s) ?? 0 }
+                if let i = item as? Int { return i }
+                return 0
             }
         }
         return nil
@@ -560,6 +751,55 @@ class LookerWebBridge: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         }
 
         os_log("  dateValues: no format matched", log: logger, type: .default)
+        return nil
+    }
+
+    /// Extract date entries with day from a dateColumn
+    private func extractDateArrayWithDay(from column: [String: Any]?) -> [(year: Int, month: Int, day: Int)]? {
+        guard let col = column,
+              let dateCol = col["dateColumn"] as? [String: Any],
+              let rawValues = dateCol["values"] else { return nil }
+
+        // Format 1: Array of dictionaries [{"year": 2026, "month": 1, "day": 15}, ...]
+        if let values = rawValues as? [[String: Any]] {
+            let entries = values.compactMap { dv -> (year: Int, month: Int, day: Int)? in
+                let year = asInt(dv["year"]) ?? 0
+                let month = asInt(dv["month"]) ?? 0
+                let day = asInt(dv["day"]) ?? 1
+                guard year > 0 else { return nil }
+                return (year: year, month: month, day: day)
+            }
+            if !entries.isEmpty { return entries }
+        }
+
+        // Format 2: Array with mixed types
+        if let arr = rawValues as? [Any] {
+            let entries = arr.compactMap { item -> (year: Int, month: Int, day: Int)? in
+                guard let dict = item as? [String: Any] else { return nil }
+                let year = asInt(dict["year"]) ?? 0
+                let month = asInt(dict["month"]) ?? 0
+                let day = asInt(dict["day"]) ?? 1
+                guard year > 0 else { return nil }
+                return (year: year, month: month, day: day)
+            }
+            if !entries.isEmpty { return entries }
+        }
+
+        // Format 3: Date strings
+        if let strings = rawValues as? [String] {
+            let entries = strings.compactMap { str -> (year: Int, month: Int, day: Int)? in
+                let parts = str.split(whereSeparator: { $0 == "-" || $0 == "/" })
+                if parts.count >= 3, let year = Int(parts[0]), let month = Int(parts[1]), let day = Int(parts[2]) {
+                    return (year: year, month: month, day: day)
+                }
+                if str.count >= 8, let year = Int(str.prefix(4)), let month = Int(str.dropFirst(4).prefix(2)), let day = Int(str.dropFirst(6).prefix(2)) {
+                    return (year: year, month: month, day: day)
+                }
+                return nil
+            }
+            if !entries.isEmpty { return entries }
+        }
+
         return nil
     }
 
