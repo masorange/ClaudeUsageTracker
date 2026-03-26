@@ -250,27 +250,27 @@ class ClaudeUsageManager: ObservableObject {
                 self.lastAccountFilter = self.accountFilter
             }
 
-            let claudeProjectsPath = self.getClaudeProjectsPath()
+            let claudeProjectsPaths = self.getClaudeProjectsPaths()
 
             var monthlyDict: [String: TokenBreakdown] = [:]
             var projectDict: [String: TokenBreakdown] = [:]
             var modelDict: [String: TokenBreakdown] = [:]
-        
-        guard let projects = try? FileManager.default.contentsOfDirectory(atPath: claudeProjectsPath.path) else {
-            return
-        }
-        
-        for project in projects {
+            
+            for claudeProjectsPath in claudeProjectsPaths {
+                let projects = (try? FileManager.default.contentsOfDirectory(atPath: claudeProjectsPath.path)) ?? []
+                
+                for project in projects {
             let projectPath = claudeProjectsPath.appendingPathComponent(project)
-            guard let files = try? FileManager.default.contentsOfDirectory(atPath: projectPath.path) else {
+            // Use an enumerator to recursively search all Conductor subdirectories
+            guard let enumerator = FileManager.default.enumerator(at: projectPath, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) else {
                 continue
             }
             
             var projectBreakdown = TokenBreakdown()
             
-            for file in files where file.hasSuffix(".jsonl") {
-                let filePath = projectPath.appendingPathComponent(file)
-                let fileKey = filePath.path
+            for case let fileURL as URL in enumerator where fileURL.pathExtension == "jsonl" {
+                let fileKey = fileURL.path
+                let filePath = fileURL
 
                 // Check if file has been modified since last cache
                 if let attributes = try? FileManager.default.attributesOfItem(atPath: fileKey),
@@ -324,42 +324,14 @@ class ClaudeUsageManager: ObservableObject {
                 var currentTurnMessages: [(timestamp: String?, monthKey: String?, input: Int, cacheCreation: Int, cacheRead: Int, output: Int, contextSize: Int, model: String?)] = []
                 var lastTimestamp: Date?
 
-                // Deduplicate: Claude Code writes multiple JSONL entries per API call
-                // (streaming chunks). Only keep the last entry per message ID.
-                var seenMessageIds: Set<String> = []
-
-                // First pass: collect last entry per message ID
-                var deduplicatedLines: [(json: [String: Any], message: [String: Any])] = []
-                var lastEntryForId: [String: Int] = [:] // msg_id -> index in deduplicatedLines
-
+                // Process each line independently (match ccusage behavior)
                 for line in lines where !line.isEmpty {
                     guard let data = line.data(using: .utf8),
                           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                           let message = json["message"] as? [String: Any] else {
                         continue
                     }
-
-                    let messageId = message["id"] as? String
-                    let hasUsage = message["usage"] != nil
-
-                    if let msgId = messageId, hasUsage {
-                        if let existingIdx = lastEntryForId[msgId] {
-                            // Replace previous entry with this one (later = more complete)
-                            deduplicatedLines[existingIdx] = (json: json, message: message)
-                        } else {
-                            lastEntryForId[msgId] = deduplicatedLines.count
-                            deduplicatedLines.append((json: json, message: message))
-                        }
-                    } else {
-                        // Non-usage entries (user messages, etc.) pass through
-                        deduplicatedLines.append((json: json, message: message))
-                    }
-                }
-
-                for entry in deduplicatedLines {
-                    let json = entry.json
-                    let message = entry.message
-
+                    
                     // Filter by account type based on message ID prefix
                     if let messageId = message["id"] as? String {
                         let isVertexMessage = messageId.hasPrefix("msg_vrtx")
@@ -373,77 +345,67 @@ class ClaudeUsageManager: ObservableObject {
                         }
                     }
 
-                    let role = message["role"] as? String
+                    let role = message["role"] as? String ?? json["type"] as? String
                     let usage = message["usage"] as? [String: Any]
-                    let model = json["model"] as? String ?? (message["model"] as? String)
-
-                    // If no usage data, this message ends the current turn
-                    guard let usage = usage else {
-                        // Process accumulated turn messages
-                        if !currentTurnMessages.isEmpty {
-                            self.processTurn(currentTurnMessages, monthlyDict: &fileMonthlyDict, projectBreakdown: &fileProjectBreakdown, modelDict: &fileModelDict)
-                            currentTurnMessages.removeAll()
-                        }
-                        lastTimestamp = nil
-                        continue
-                    }
-
-                    let input = usage["input_tokens"] as? Int ?? 0
-                    let cacheRead = usage["cache_read_input_tokens"] as? Int ?? 0
-                    let output = usage["output_tokens"] as? Int ?? 0
-
-                    // Cache creation - try both formats (old and new)
-                    var cacheCreation = usage["cache_creation_input_tokens"] as? Int ?? 0
-                    if cacheCreation == 0, let cacheCreationDict = usage["cache_creation"] as? [String: Any] {
-                        cacheCreation = cacheCreationDict["ephemeral_5m_input_tokens"] as? Int ?? 0
-                        cacheCreation += cacheCreationDict["ephemeral_1h_input_tokens"] as? Int ?? 0
-                    }
-
-                    let contextSize = input + cacheCreation + cacheRead
                     let timestamp = json["timestamp"] as? String
-                    let monthKey = timestamp.map { String($0.prefix(7)) }
-
-                    // Check if this is part of the same turn (assistant role, within 10 seconds)
+                    
+                    // Determine if this is a new turn (heuristic matching ccusage/claude logs)
                     var isNewTurn = false
                     if let timestamp = timestamp {
-                        // Use reusable formatter instead of creating new one per line
                         if let currentDate = self.iso8601Formatter.date(from: timestamp) {
                             if let lastDate = lastTimestamp {
                                 let timeDiff = currentDate.timeIntervalSince(lastDate)
-                                // If more than 10 seconds apart or role is not assistant, start new turn
-                                if timeDiff > 10 || role != "assistant" {
+                                // New turn if time jump > 10s or if transition from assistant to non-assistant
+                                if timeDiff > 10 || (role != "assistant" && role != "ai") {
                                     isNewTurn = true
                                 }
+                            } else {
+                                isNewTurn = true
                             }
-
                             lastTimestamp = currentDate
                         } else {
                             isNewTurn = true
                         }
-                    } else {
+                    } else if !currentTurnMessages.isEmpty {
                         isNewTurn = true
                     }
-
-                    // If new turn starts, process the previous turn
+                    
                     if isNewTurn && !currentTurnMessages.isEmpty {
                         self.processTurn(currentTurnMessages, monthlyDict: &fileMonthlyDict, projectBreakdown: &fileProjectBreakdown, modelDict: &fileModelDict)
                         currentTurnMessages.removeAll()
                     }
-
-                    // Add current message to the turn
-                    currentTurnMessages.append((
-                        timestamp: timestamp,
-                        monthKey: monthKey,
-                        input: input,
-                        cacheCreation: cacheCreation,
-                        cacheRead: cacheRead,
-                        output: output,
-                        contextSize: contextSize,
-                        model: model
-                    ))
+                    
+                    if let usage = usage {
+                        let input = usage["input_tokens"] as? Int ?? 0
+                        let output = usage["output_tokens"] as? Int ?? 0
+                        let cacheRead = usage["cache_read_input_tokens"] as? Int ?? 0
+                        var cacheCreation = usage["cache_creation_input_tokens"] as? Int ?? 0
+                        
+                        // Cache creation - try both formats
+                        if cacheCreation == 0, let cacheCreationDict = usage["cache_creation"] as? [String: Any] {
+                            let ep5m = cacheCreationDict["ephemeral_5m_input_tokens"] as? Int ?? 0
+                            let ep1h = cacheCreationDict["ephemeral_1h_input_tokens"] as? Int ?? 0
+                            cacheCreation = ep5m + ep1h
+                        }
+                        
+                        let model = json["model"] as? String ?? message["model"] as? String
+                        let monthKey = timestamp.map { String($0.prefix(7)) }
+                        let contextSize = input + cacheCreation + cacheRead
+                        
+                        currentTurnMessages.append((
+                            timestamp: timestamp,
+                            monthKey: monthKey,
+                            input: input,
+                            cacheCreation: cacheCreation,
+                            cacheRead: cacheRead,
+                            output: output,
+                            contextSize: contextSize,
+                            model: model
+                        ))
+                    }
                 }
-
-                // Process any remaining turn messages at the end of file
+                
+                // Final turn in file
                 if !currentTurnMessages.isEmpty {
                     self.processTurn(currentTurnMessages, monthlyDict: &fileMonthlyDict, projectBreakdown: &fileProjectBreakdown, modelDict: &fileModelDict)
                 }
@@ -480,11 +442,14 @@ class ClaudeUsageManager: ObservableObject {
                 }
             }
             
-            if projectBreakdown.inputTokens > 0 || projectBreakdown.cacheCreationTokens > 0 ||
-               projectBreakdown.cacheReadTokens > 0 || projectBreakdown.outputTokens > 0 {
-                projectDict[project] = projectBreakdown
+                    if projectBreakdown.inputTokens > 0 || projectBreakdown.cacheCreationTokens > 0 ||
+                       projectBreakdown.cacheReadTokens > 0 || projectBreakdown.outputTokens > 0 {
+                        var existing = projectDict[project] ?? TokenBreakdown()
+                        self.mergeBreakdown(&existing, with: projectBreakdown)
+                        projectDict[project] = existing
+                    }
+                }
             }
-        }
         
         // Convert to arrays and calculate costs
         DispatchQueue.main.async {
@@ -538,25 +503,25 @@ class ClaudeUsageManager: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
 
-            let claudeProjectsPath = self.getClaudeProjectsPath()
+            let claudeProjectsPaths = self.getClaudeProjectsPaths()
 
             var projectDict: [String: TokenBreakdown] = [:]
 
-            guard let projects = try? FileManager.default.contentsOfDirectory(atPath: claudeProjectsPath.path) else {
-                return
-            }
+            for claudeProjectsPath in claudeProjectsPaths {
+                let projects = (try? FileManager.default.contentsOfDirectory(atPath: claudeProjectsPath.path)) ?? []
 
-            for project in projects {
+                for project in projects {
                 let projectPath = claudeProjectsPath.appendingPathComponent(project)
-                guard let files = try? FileManager.default.contentsOfDirectory(atPath: projectPath.path) else {
+                // Use an enumerator to recursively search all Conductor subdirectories
+                guard let enumerator = FileManager.default.enumerator(at: projectPath, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) else {
                     continue
                 }
 
                 var projectBreakdown = TokenBreakdown()
 
-                for file in files where file.hasSuffix(".jsonl") {
-                    let filePath = projectPath.appendingPathComponent(file)
-                    let fileKey = filePath.path
+                for case let fileURL as URL in enumerator where fileURL.pathExtension == "jsonl" {
+                    let fileKey = fileURL.path
+                    let filePath = fileURL
 
                     // Use cached results if available
                     if let cachedResult = self.fileResultsCache[fileKey] {
@@ -569,9 +534,12 @@ class ClaudeUsageManager: ObservableObject {
                     }
                 }
 
-                if projectBreakdown.inputTokens > 0 || projectBreakdown.cacheCreationTokens > 0 ||
-                   projectBreakdown.cacheReadTokens > 0 || projectBreakdown.outputTokens > 0 {
-                    projectDict[project] = projectBreakdown
+                    if projectBreakdown.inputTokens > 0 || projectBreakdown.cacheCreationTokens > 0 ||
+                       projectBreakdown.cacheReadTokens > 0 || projectBreakdown.outputTokens > 0 {
+                        var existing = projectDict[project] ?? TokenBreakdown()
+                        self.mergeBreakdown(&existing, with: projectBreakdown)
+                        projectDict[project] = existing
+                    }
                 }
             }
 
@@ -590,6 +558,15 @@ class ClaudeUsageManager: ObservableObject {
         return breakdown.accumulatedCost
     }
 
+    private func mergeBreakdown(_ target: inout TokenBreakdown, with source: TokenBreakdown) {
+        target.inputTokens += source.inputTokens
+        target.cacheCreationTokens += source.cacheCreationTokens
+        target.cacheReadTokens += source.cacheReadTokens
+        target.outputTokens += source.outputTokens
+        target.maxContextSize = max(target.maxContextSize, source.maxContextSize)
+        target.accumulatedCost += source.accumulatedCost
+    }
+    
     // Calculate cost for a single message based on the model used
     private func calculateMessageCost(input: Int, cacheCreation: Int, cacheRead: Int, output: Int, contextSize: Int, model: String? = nil) -> Double {
         // Get pricing based on the model used
@@ -703,18 +680,34 @@ class ClaudeUsageManager: ObservableObject {
         return formatter.string(from: prevMonth)
     }
     
-    private func getClaudeProjectsPath() -> URL {
+    private func getClaudeProjectsPaths() -> [URL] {
+        var paths: [URL] = []
+        
         // Check if CLAUDE_CONFIG_DIR environment variable is set
-        if let configDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"],
-           !configDir.isEmpty {
-            // Handle tilde expansion
-            let expandedPath = (configDir as NSString).expandingTildeInPath
-            return URL(fileURLWithPath: expandedPath).appendingPathComponent("projects")
+        if let configDirs = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"],
+           !configDirs.isEmpty {
+            // Support comma-separated paths
+            let dirList = configDirs.components(separatedBy: ",")
+            for dir in dirList {
+                let trimmedDir = dir.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmedDir.isEmpty {
+                    let expandedPath = (trimmedDir as NSString).expandingTildeInPath
+                    paths.append(URL(fileURLWithPath: expandedPath).appendingPathComponent("projects"))
+                }
+            }
+        } else {
+            // Default locations
+            let home = FileManager.default.homeDirectoryForCurrentUser
+            
+            // ~/.claude/projects (old default)
+            paths.append(home.appendingPathComponent(".claude/projects"))
+            
+            // ~/.config/claude/projects (new default)
+            paths.append(home.appendingPathComponent(".config/claude/projects"))
         }
 
-        // Fallback to default ~/.claude/projects
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude/projects")
+        // Return only paths that exist
+        return paths.filter { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     private func simplifyProjectName(_ name: String) -> String {
