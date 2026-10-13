@@ -11,10 +11,14 @@ final class IAPSession: NSObject, SessionStore {
     static let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36"
     private static let renewTimeout: TimeInterval = 20
     private static let idleOnLoginPage: TimeInterval = 5
+    private static let offlineCodes: Set<URLError.Code> = [
+        .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost,
+        .dnsLookupFailed, .timedOut, .internationalRoamingOff, .dataNotAllowed,
+    ]
 
     private let dataStore = WKWebsiteDataStore.default()
     private let logger = Logger(subsystem: "com.claudeusage.tracker", category: "auth")
-    private var renewTask: Task<Bool, Never>?
+    private var renewTask: Task<RenewResult, Never>?
     private var loginWindow: LoginWindowController?
 
     func authCookie() async -> String? {
@@ -23,7 +27,7 @@ final class IAPSession: NSObject, SessionStore {
         return cookies.first { $0.name == APIClient.cookieName && host.hasSuffix($0.domain.trimmingCharacters(in: ["."])) }?.value
     }
 
-    func renew() async -> Bool {
+    func renew() async -> RenewResult {
         if let renewTask { return await renewTask.value }
         let task = Task { await self.performRenew() }
         renewTask = task
@@ -61,7 +65,8 @@ final class IAPSession: NSObject, SessionStore {
         return webView
     }
 
-    private func performRenew() async -> Bool {
+    private func performRenew() async -> RenewResult {
+        let previousCookie = await authCookie()
         let webView = makeWebView(frame: NSRect(x: 0, y: 0, width: 1024, height: 768))
         let tracker = NavigationTracker()
         webView.navigationDelegate = tracker
@@ -74,18 +79,23 @@ final class IAPSession: NSObject, SessionStore {
         let deadline = Date().addingTimeInterval(Self.renewTimeout)
         while Date() < deadline {
             try? await Task.sleep(nanoseconds: 250_000_000)
-            guard let finished = tracker.lastFinishedURL, let finishedAt = tracker.lastFinishedAt else { continue }
-            if finished.host == Self.homeURL.host, await authCookie() != nil {
+            // IAP only issues a new cookie after a successful round trip through Google.
+            if let cookie = await authCookie(), cookie != previousCookie {
                 logger.info("IAP session renewed silently")
-                return true
+                return .renewed
             }
+            if let error = tracker.networkError, Self.offlineCodes.contains(error.code) {
+                logger.info("Silent renewal failed: network unreachable (\(error.code.rawValue))")
+                return .offline
+            }
+            guard let finished = tracker.lastFinishedURL, let finishedAt = tracker.lastFinishedAt else { continue }
             if finished.host != Self.homeURL.host, !webView.isLoading,
                Date().timeIntervalSince(finishedAt) > Self.idleOnLoginPage {
                 logger.info("Silent renewal stopped at \(finished.host ?? "?", privacy: .public); sign-in required")
-                return false
+                return .needsLogin
             }
         }
         logger.info("Silent renewal timed out")
-        return false
+        return .needsLogin
     }
 }

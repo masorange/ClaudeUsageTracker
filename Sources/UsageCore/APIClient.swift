@@ -56,10 +56,9 @@ public final class APIClient: @unchecked Sendable {
     /// Performs the request. An expired session (IAP redirect to Google or 401) triggers one silent renewal + retry.
     private func fetch(_ path: String, query: [String: String], mayRenew: Bool) async throws -> Data {
         guard let cookie = await store.authCookie() else {
-            if mayRenew, await store.renew() {
-                return try await fetch(path, query: query, mayRenew: false)
-            }
-            throw APIError.needsLogin
+            guard mayRenew else { throw APIError.needsLogin }
+            try await renewSession()
+            return try await fetch(path, query: query, mayRenew: false)
         }
 
         let result: (Data, URLResponse)
@@ -76,12 +75,19 @@ public final class APIClient: @unchecked Sendable {
         case 200..<300:
             return result.0
         case 300..<400, 401:
-            if mayRenew, await store.renew() {
-                return try await fetch(path, query: query, mayRenew: false)
-            }
-            throw APIError.needsLogin
+            guard mayRenew else { throw APIError.needsLogin }
+            try await renewSession()
+            return try await fetch(path, query: query, mayRenew: false)
         default:
             throw APIError.server(http.statusCode)
+        }
+    }
+
+    private func renewSession() async throws {
+        switch await store.renew() {
+        case .renewed: return
+        case .needsLogin: throw APIError.needsLogin
+        case .offline: throw APIError.network("offline")
         }
     }
 

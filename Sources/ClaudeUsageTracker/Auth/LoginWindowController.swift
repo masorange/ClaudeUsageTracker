@@ -10,6 +10,8 @@ final class LoginWindowController: NSWindowController, NSWindowDelegate {
     private let onSuccess: () -> Void
     private let onClose: () -> Void
     private var succeeded = false
+    /// Cookie present before sign-in; success requires a different one (a stale session cookie may linger).
+    private var previousCookie: String?
 
     init(session: IAPSession, title: String, onSuccess: @escaping () -> Void, onClose: @escaping () -> Void) {
         self.session = session
@@ -27,7 +29,11 @@ final class LoginWindowController: NSWindowController, NSWindowDelegate {
         window.delegate = self
         tracker.onFinish = { [weak self] url in self?.checkSignedIn(url) }
         webView.navigationDelegate = tracker
-        webView.load(URLRequest(url: IAPSession.homeURL))
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            previousCookie = await session.authCookie()
+            webView.load(URLRequest(url: IAPSession.homeURL))
+        }
     }
 
     @available(*, unavailable)
@@ -38,7 +44,7 @@ final class LoginWindowController: NSWindowController, NSWindowDelegate {
     private func checkSignedIn(_ url: URL?) {
         guard !succeeded, url?.host == IAPSession.homeURL.host else { return }
         Task { @MainActor in
-            guard await session.authCookie() != nil, !succeeded else { return }
+            guard let cookie = await session.authCookie(), cookie != previousCookie, !succeeded else { return }
             succeeded = true
             window?.close()
             onSuccess()

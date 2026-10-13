@@ -65,11 +65,11 @@ extension NSLock {
 final class FakeSessionStore: SessionStore, @unchecked Sendable {
     private let lock = NSLock()
     private var cookie: String?
-    private let renewResult: Bool
+    private let renewResult: RenewResult
     private let cookieAfterRenew: String?
     private var _renewCalls = 0
 
-    init(cookie: String?, renewResult: Bool = false, cookieAfterRenew: String? = nil) {
+    init(cookie: String?, renewResult: RenewResult = .needsLogin, cookieAfterRenew: String? = nil) {
         self.cookie = cookie
         self.renewResult = renewResult
         self.cookieAfterRenew = cookieAfterRenew
@@ -79,10 +79,10 @@ final class FakeSessionStore: SessionStore, @unchecked Sendable {
 
     func authCookie() async -> String? { lock.sync { cookie } }
 
-    func renew() async -> Bool {
+    func renew() async -> RenewResult {
         lock.sync {
             _renewCalls += 1
-            if renewResult { cookie = cookieAfterRenew }
+            if renewResult == .renewed { cookie = cookieAfterRenew }
             return renewResult
         }
     }

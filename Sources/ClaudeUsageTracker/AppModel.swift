@@ -25,6 +25,8 @@ final class AppModel: ObservableObject {
     private let cache: ReportCache
     private let logger = Logger(subsystem: "com.claudeusage.tracker", category: "model")
     private var timer: Timer?
+    /// A refresh requested while another one is running (e.g. right after sign-in) runs once it finishes.
+    private var refreshQueued = false
 
     init(session: IAPSession, cache: ReportCache = .standard) {
         self.session = session
@@ -45,14 +47,27 @@ final class AppModel: ObservableObject {
 
     /// Refreshes when the last successful load is older than `maxAge` seconds.
     func refreshIfStale(maxAge: TimeInterval = 300) async {
-        if let lastSuccess, Date().timeIntervalSince(lastSuccess) < maxAge, state == .ok { return }
+        if let lastSuccess, Date().timeIntervalSince(lastSuccess) < maxAge, state == .ok,
+           report?.isCurrent() == true { return }
         await refresh()
     }
 
     func refresh() async {
-        guard !isLoading else { return }
+        guard !isLoading else {
+            refreshQueued = true
+            return
+        }
         isLoading = true
-        defer { isLoading = false }
+        await loadReport()
+        dropReportFromPreviousMonth()
+        isLoading = false
+        if refreshQueued {
+            refreshQueued = false
+            await refresh()
+        }
+    }
+
+    private func loadReport() async {
         do {
             let fresh = try await MonthReport.load(client: client)
             report = fresh
@@ -72,7 +87,6 @@ final class AppModel: ObservableObject {
         } catch {
             state = .failed(error.localizedDescription)
         }
-        dropReportFromPreviousMonth()
     }
 
     func signIn(title: String) {
@@ -89,8 +103,11 @@ final class AppModel: ObservableObject {
         state = .needsLogin
     }
 
+    /// Around midnight on the 1st a load may finish with last month's data; discard it and load again.
     private func dropReportFromPreviousMonth() {
-        guard let report, report.monthStart != MonthReport.monthStart(of: Date(), calendar: .current) else { return }
+        guard let report, !report.isCurrent() else { return }
         self.report = nil
+        state = .idle
+        refreshQueued = true
     }
 }

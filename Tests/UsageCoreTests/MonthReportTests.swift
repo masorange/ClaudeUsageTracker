@@ -118,4 +118,22 @@ final class MonthReportTests: XCTestCase {
         XCTAssertEqual(report.spend, 0)
         XCTAssertTrue(report.models.isEmpty)
     }
+
+    func testIgnoresGlanceFromAnotherMonth() throws {
+        // Server still reports October right after local midnight on Nov 1st.
+        let json = Data(#"{"month_start":"2026-10-01","spend_mtd":180,"projection":190,"by_provider":[{"provider":"litellm","spend_mtd":180,"projection":190}]}"#.utf8)
+        let glance = try JSONDecoder.api.decode(MonthGlance.self, from: json)
+        let daily = [DailySpend(day: "2026-11-01", spend: 0.5, listSpend: 0.5, requests: 1, tokens: 10)]
+        let report = MonthReport.build(me: Me(name: nil, teams: nil, budgets: nil), glance: glance, daily: daily,
+                                       byModel: [], freshness: nil, today: TestCalendar.date(2026, 11, 1, 0, 30),
+                                       calendar: TestCalendar.madrid)
+        XCTAssertEqual(report.spend, 0.5)
+        XCTAssertNil(report.projection)
+    }
+
+    func testIsCurrentOnlyForSameMonth() throws {
+        let report = try fixtureReport()
+        XCTAssertTrue(report.isCurrent(at: TestCalendar.date(2026, 10, 31, 23, 59), calendar: TestCalendar.madrid))
+        XCTAssertFalse(report.isCurrent(at: TestCalendar.date(2026, 11, 1, 0, 1), calendar: TestCalendar.madrid))
+    }
 }

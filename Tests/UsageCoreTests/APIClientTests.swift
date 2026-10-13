@@ -38,7 +38,7 @@ final class APIClientTests: XCTestCase {
         StubURLProtocol.handler = { request in
             request.value(forHTTPHeaderField: "Cookie")?.hasSuffix("=new") == true ? ok : redirect
         }
-        let store = FakeSessionStore(cookie: "old", renewResult: true, cookieAfterRenew: "new")
+        let store = FakeSessionStore(cookie: "old", renewResult: .renewed, cookieAfterRenew: "new")
         let me = try await client(store).me()
         XCTAssertEqual(me.teams, ["Bronze"])
         XCTAssertEqual(store.renewCalls, 1)
@@ -48,7 +48,7 @@ final class APIClientTests: XCTestCase {
     func testNeedsLoginWhenRenewFails() async {
         let redirect = googleRedirect
         StubURLProtocol.handler = { _ in redirect }
-        let store = FakeSessionStore(cookie: "old", renewResult: false)
+        let store = FakeSessionStore(cookie: "old", renewResult: .needsLogin)
         await assertThrows(.needsLogin) { _ = try await self.client(store).me() }
         XCTAssertEqual(store.renewCalls, 1)
         XCTAssertEqual(StubURLProtocol.requests.count, 1)
@@ -56,7 +56,7 @@ final class APIClientTests: XCTestCase {
 
     func testNeedsLoginWhenStillUnauthorizedAfterRenew() async {
         StubURLProtocol.handler = { _ in .init(status: 401) }
-        let store = FakeSessionStore(cookie: "old", renewResult: true, cookieAfterRenew: "new")
+        let store = FakeSessionStore(cookie: "old", renewResult: .renewed, cookieAfterRenew: "new")
         await assertThrows(.needsLogin) { _ = try await self.client(store).me() }
         XCTAssertEqual(store.renewCalls, 1)
         XCTAssertEqual(StubURLProtocol.requests.count, 2)
@@ -65,15 +65,27 @@ final class APIClientTests: XCTestCase {
     func testNoCookieTriesSilentRenewFirst() async throws {
         let ok = try meReply()
         StubURLProtocol.handler = { _ in ok }
-        let store = FakeSessionStore(cookie: nil, renewResult: true, cookieAfterRenew: "new")
+        let store = FakeSessionStore(cookie: nil, renewResult: .renewed, cookieAfterRenew: "new")
         _ = try await client(store).me()
         XCTAssertEqual(store.renewCalls, 1)
         XCTAssertEqual(StubURLProtocol.requests.count, 1)
     }
 
     func testNoCookieAndNoSessionNeedsLogin() async {
-        let store = FakeSessionStore(cookie: nil, renewResult: false)
+        let store = FakeSessionStore(cookie: nil, renewResult: .needsLogin)
         await assertThrows(.needsLogin) { _ = try await self.client(store).me() }
+        XCTAssertTrue(StubURLProtocol.requests.isEmpty)
+    }
+
+    func testOfflineDuringRenewalIsNetworkErrorNotLogin() async {
+        let store = FakeSessionStore(cookie: nil, renewResult: .offline)
+        do {
+            _ = try await client(store).me()
+            XCTFail("expected network error")
+        } catch APIError.network {
+        } catch {
+            XCTFail("unexpected \(error)")
+        }
         XCTAssertTrue(StubURLProtocol.requests.isEmpty)
     }
 

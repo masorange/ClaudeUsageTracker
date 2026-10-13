@@ -60,6 +60,11 @@ public struct MonthReport: Codable, Equatable, Sendable {
         return 1 - spend / listSpend
     }
 
+    /// True when the report belongs to the month containing `date`.
+    public func isCurrent(at date: Date = Date(), calendar: Calendar = .current) -> Bool {
+        monthStart == Self.monthStart(of: date, calendar: calendar)
+    }
+
     public static func monthStart(of date: Date, calendar: Calendar) -> Date {
         calendar.date(from: calendar.dateComponents([.year, .month], from: date))!
     }
@@ -69,7 +74,9 @@ public struct MonthReport: Codable, Equatable, Sendable {
                              now: Date = Date()) -> MonthReport {
         let monthStart = monthStart(of: today, calendar: calendar)
         let budget = me.budget(for: provider)
-        let providerGlance = glance.provider(provider)
+        // Ignore the glance when the server computed it for another month (e.g. just after local midnight on the 1st).
+        let glanceIsForThisMonth = glance.monthStart.map { $0 == APIDates.dayString(monthStart, calendar: calendar) } ?? true
+        let providerGlance = glanceIsForThisMonth ? glance.provider(provider) : nil
         return MonthReport(
             monthStart: monthStart,
             generatedAt: now,

@@ -21,6 +21,8 @@ public struct Budget: Decodable, Equatable, Sendable {
 
 /// Month-to-date overview returned by `GET /me/month-glance`.
 public struct MonthGlance: Decodable, Equatable, Sendable {
+    /// First day of the month the server computed the glance for (`YYYY-MM-DD`).
+    public var monthStart: String? = nil
     public let spendMtd: Double?
     public let projection: Double?
     public let projectionPct: Double?
