@@ -10,19 +10,17 @@ Before creating a release, make sure you've:
 
 - [ ] Tested the app thoroughly on your Mac
 - [ ] Verified all features work correctly
-- [ ] Updated version numbers in `build.sh` (CFBundleShortVersionString)
-- [ ] Verified `build.sh` includes all Swift files (including UpdateManager.swift)
+- [ ] `swift test` passes
 - [ ] Committed all changes to git
 - [ ] Updated CHANGELOG (if you have one)
 
 ### ⚠️ Important: Version Number
 
-The version number in `build.sh` (line 61: `CFBundleShortVersionString`) **must match** the release tag for auto-update to work correctly:
+`create_release.sh X.Y.Z` passes the version to `build.sh` (`VERSION=X.Y.Z`), which writes it to
+`CFBundleShortVersionString`. It **must match** the release tag for auto-update to work correctly:
 
 ```bash
-# Example: For release v1.5.0, build.sh should have:
-<key>CFBundleShortVersionString</key>
-<string>1.5.0</string>
+./create_release.sh 2.0.0   # → tag v2.0.0
 ```
 
 This version is used by the auto-update system to compare with GitHub releases.
