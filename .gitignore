@@ -40,3 +40,7 @@ get_download_stats.sh
 
 # Superpowers workspaces
 .superpowers/
+
+# Internal design notes (kept local, not published)
+docs/research/
+docs/superpowers/

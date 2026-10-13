@@ -92,7 +92,6 @@ Sources/
   UsageCore/            # UI-free: APIClient, models, MonthReport aggregation, cache
   ClaudeUsageTracker/   # AppKit status item, SwiftUI views, WebKit SSO session
 Tests/UsageCoreTests/   # XCTest with anonymized real API responses
-docs/research/          # AI Platform API notes
 ```
 
 Release process: [PUBLISHING.md](PUBLISHING.md). Contributions: [CONTRIBUTING.md](CONTRIBUTING.md).
