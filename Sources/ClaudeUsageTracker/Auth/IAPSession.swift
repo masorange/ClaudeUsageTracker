@@ -18,8 +18,10 @@ final class IAPSession: NSObject, SessionStore {
 
     private let dataStore = WKWebsiteDataStore.default()
     private let logger = Logger(subsystem: "com.claudeusage.tracker", category: "auth")
-    private var renewTask: Task<RenewResult, Never>?
-    private var loginWindow: LoginWindowController?
+    private lazy var gate = RenewalGate { [unowned self] in await self.performRenew() }
+    private var loginWindow: LoginWindowController? {
+        didSet { gate.interactiveLoginActive = loginWindow != nil }
+    }
 
     func authCookie() async -> String? {
         let cookies = await dataStore.httpCookieStore.allCookies()
@@ -28,12 +30,7 @@ final class IAPSession: NSObject, SessionStore {
     }
 
     func renew() async -> RenewResult {
-        if let renewTask { return await renewTask.value }
-        let task = Task { await self.performRenew() }
-        renewTask = task
-        let result = await task.value
-        renewTask = nil
-        return result
+        await gate.renew()
     }
 
     func presentLogin(title: String, onSuccess: @escaping () -> Void) {
@@ -79,6 +76,11 @@ final class IAPSession: NSObject, SessionStore {
         let deadline = Date().addingTimeInterval(Self.renewTimeout)
         while Date() < deadline {
             try? await Task.sleep(nanoseconds: 250_000_000)
+            // A hidden flow would invalidate the user's interactive sign-in (IAP keeps per-flow cookies).
+            if gate.interactiveLoginActive {
+                logger.info("Silent renewal abandoned: interactive sign-in started")
+                return .needsLogin
+            }
             // IAP only issues a new cookie after a successful round trip through Google.
             if let cookie = await authCookie(), cookie != previousCookie {
                 logger.info("IAP session renewed silently")

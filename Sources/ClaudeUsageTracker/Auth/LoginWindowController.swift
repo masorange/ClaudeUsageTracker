@@ -3,7 +3,7 @@ import WebKit
 
 /// Window with the AI Platform page; the user signs in with corporate SSO and the window closes itself.
 @MainActor
-final class LoginWindowController: NSWindowController, NSWindowDelegate {
+final class LoginWindowController: NSWindowController, NSWindowDelegate, WKHTTPCookieStoreObserver {
     private let session: IAPSession
     private let webView: WKWebView
     private let tracker = NavigationTracker()
@@ -32,8 +32,14 @@ final class LoginWindowController: NSWindowController, NSWindowDelegate {
         Task { @MainActor [weak self] in
             guard let self else { return }
             previousCookie = await session.authCookie()
+            // Finish as soon as IAP sets a new session cookie, even if the last page never finishes loading.
+            webView.configuration.websiteDataStore.httpCookieStore.add(self)
             webView.load(URLRequest(url: IAPSession.homeURL))
         }
+    }
+
+    nonisolated func cookiesDidChange(in cookieStore: WKHTTPCookieStore) {
+        Task { @MainActor [weak self] in self?.checkSignedIn(nil) }
     }
 
     @available(*, unavailable)
@@ -42,7 +48,7 @@ final class LoginWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func checkSignedIn(_ url: URL?) {
-        guard !succeeded, url?.host == IAPSession.homeURL.host else { return }
+        guard !succeeded else { return }
         Task { @MainActor in
             guard let cookie = await session.authCookie(), cookie != previousCookie, !succeeded else { return }
             succeeded = true
@@ -52,6 +58,7 @@ final class LoginWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        webView.configuration.websiteDataStore.httpCookieStore.remove(self)
         webView.stopLoading()
         if !succeeded { onClose() }
     }
