@@ -40,6 +40,7 @@ struct DashboardView: View {
                 Task { await model.refresh() }
             } label: {
                 Image(systemName: "arrow.clockwise")
+                    .accessibilityLabel(prefs.tr("Refresh", "Actualizar"))
             }
             .buttonStyle(.borderless)
             .disabled(model.isLoading)
@@ -48,6 +49,7 @@ struct DashboardView: View {
                 showingSettings.toggle()
             } label: {
                 Image(systemName: showingSettings ? "xmark.circle" : "gearshape")
+                    .accessibilityLabel(showingSettings ? prefs.tr("Close settings", "Cerrar ajustes") : prefs.tr("Settings", "Ajustes"))
             }
             .buttonStyle(.borderless)
             .help(prefs.tr("Settings", "Ajustes"))
@@ -138,6 +140,7 @@ struct DashboardView: View {
                 NSApp.terminate(nil)
             } label: {
                 Image(systemName: "power")
+                    .accessibilityLabel(prefs.tr("Quit", "Salir"))
             }
             .buttonStyle(.borderless)
             .help(prefs.tr("Quit", "Salir"))

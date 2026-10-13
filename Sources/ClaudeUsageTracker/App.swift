@@ -35,9 +35,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.action = #selector(togglePopover)
 
         popover.behavior = .transient
-        popover.contentViewController = NSHostingController(
+        let hosting = NSHostingController(
             rootView: DashboardView(model: model, prefs: prefs, currency: currency, updates: updates)
         )
+        // Let the popover follow SwiftUI's size so it grows downwards from the menu bar instead of off-screen.
+        hosting.sizingOptions = [.preferredContentSize]
+        popover.contentViewController = hosting
 
         model.objectWillChange
             .merge(with: prefs.objectWillChange, currency.objectWillChange)
