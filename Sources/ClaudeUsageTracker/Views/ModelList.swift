@@ -25,6 +25,7 @@ struct ModelList: View {
     private func row(_ model: ModelUsage) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
+                ProviderIconView(provider: model.provider, size: 14)
                 Text(name(model))
                     .fontWeight(.medium)
                     .lineLimit(1)

@@ -54,6 +54,8 @@ final class MonthReportTests: XCTestCase {
         XCTAssertEqual(sonnet.tokens, 69_097_175)
         XCTAssertEqual(sonnet.requests, 102)
         XCTAssertEqual(sonnet.discount ?? 0, 0.785005147941914, accuracy: 1e-9)
+        XCTAssertEqual(opus.provider, .anthropic)
+        XCTAssertEqual(sonnet.provider, .anthropic)
     }
 
     func testFallsBackToDailySumWithoutProviderGlance() throws {

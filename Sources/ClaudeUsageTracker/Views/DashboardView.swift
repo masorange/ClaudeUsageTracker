@@ -24,6 +24,8 @@ struct DashboardView: View {
             footer
         }
         .frame(width: 380)
+        // Solid background: the popover's default vibrancy let the desktop show through the lists.
+        .background(Color(nsColor: .windowBackgroundColor))
         .environment(\.locale, prefs.language.locale)
     }
 

@@ -16,6 +16,8 @@ public struct ModelUsage: Codable, Equatable, Sendable, Identifiable {
     public let tokens: Int
     /// Number of models aggregated into this row; only set for the "others" row.
     public let groupedCount: Int?
+    /// Vendor of the model (nil for "others" and for reports cached by older versions).
+    public var provider: ModelProvider? = nil
 
     public var discount: Double? { MonthReport.discount(spend: spend, listSpend: listSpend) }
     public var isOthers: Bool { id == MonthReport.othersID }
@@ -121,7 +123,8 @@ public struct MonthReport: Codable, Equatable, Sendable {
                 listSpend: (previous?.listSpend ?? 0) + listSpend,
                 requests: (previous?.requests ?? 0) + row.requests,
                 tokens: (previous?.tokens ?? 0) + row.tokens,
-                groupedCount: nil
+                groupedCount: nil,
+                provider: previous?.provider ?? ModelProvider(modelID: row.model)
             )
         }
         let sorted = merged.values.sorted {

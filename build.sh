@@ -14,6 +14,9 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/ClaudeUsageTracker" "$APP/Contents/MacOS/ClaudeUsageTracker"
 chmod +x "$APP/Contents/MacOS/ClaudeUsageTracker"
 
+# Provider logos (LobeHub Icons, MIT) loaded at runtime from Contents/Resources/ProviderIcons.
+cp -R Resources/ProviderIcons "$APP/Contents/Resources/ProviderIcons"
+
 if [ -d "Assets.xcassets/AppIcon.appiconset" ]; then
     ICONSET="$(mktemp -d)/AppIcon.iconset"
     mkdir -p "$ICONSET"

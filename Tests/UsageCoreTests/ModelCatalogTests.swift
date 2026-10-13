@@ -28,6 +28,20 @@ final class ModelCatalogTests: XCTestCase {
         XCTAssertFalse(opus.isTest)
     }
 
+    func testReadableNamesForNonClaudeModels() {
+        let cases: [(String, String)] = [
+            ("gpt-5", "GPT-5"), ("gpt-5.4-mini", "GPT-5.4 Mini"), ("gpt-4o", "GPT-4o"), ("gpt-oss-120b", "GPT-OSS 120B"),
+            ("gemini-2.5-pro", "Gemini 2.5 Pro"), ("gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite"),
+            ("o3-mini", "o3 Mini"), ("text-embedding-3-small", "Text Embedding 3 Small"),
+            ("deepseek-r1", "DeepSeek R1"), ("glm-4.7", "GLM 4.7"), ("kimi-k2-thinking", "Kimi K2 Thinking"),
+            ("llama-4-maverick", "Llama 4 Maverick"), ("qwen3-coder", "Qwen3 Coder"), ("minimax-m2", "MiniMax M2"),
+            ("gemini-2.5-flash-tts", "Gemini 2.5 Flash TTS"), ("claude-opus-5-5", "Opus 5.5"),
+        ]
+        for (id, expected) in cases {
+            XCTAssertEqual(ModelCatalog.displayName(for: id), expected, id)
+        }
+    }
+
     func testVertexVariantUsesBasePriceAndProxyLimits() throws {
         let vertex = try entry("claude-opus-5-5-vertex", in: try catalog())
         XCTAssertEqual(vertex.displayName, "Opus 5.5 (Vertex)")
@@ -116,6 +130,22 @@ final class ModelCatalogTests: XCTestCase {
         let full = try LiteLLMClient.decodeCostMap(Fixture.data("litellm-cost-map"))
         let pruned = ModelCatalog.prune(full, for: models)
         XCTAssertEqual(Array(pruned.keys), ["claude-opus-5-5"])
+    }
+}
+
+final class ProviderIconTests: XCTestCase {
+    func testEveryKnownProviderHasAnIcon() {
+        for provider in ModelProvider.allCases where provider != .other {
+            XCTAssertNotNil(provider.icon, provider.rawValue)
+        }
+        XCTAssertNil(ModelProvider.other.icon)
+    }
+
+    func testMonochromeLogosHaveLightAndDarkVariants() {
+        XCTAssertEqual(ModelProvider.openai.icon, ProviderIcon(name: "openai", hasAppearanceVariants: true))
+        XCTAssertEqual(ModelProvider.anthropic.icon, ProviderIcon(name: "anthropic", hasAppearanceVariants: false))
+        XCTAssertEqual(ProviderIcon(name: "openai", hasAppearanceVariants: true).fileName(dark: true), "openai-dark")
+        XCTAssertEqual(ProviderIcon(name: "anthropic", hasAppearanceVariants: false).fileName(dark: true), "anthropic")
     }
 }
 
