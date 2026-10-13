@@ -36,14 +36,15 @@
 Only the **LiteLLM** provider is shown — it is the one that consumes your budget. Usage covered by a
 Claude Enterprise seat is not billed and is not included.
 
-## 📦 Install
+## 📦 Install or update (one command)
 
 ```bash
-brew tap masorange/claudeusagetracker
-brew install --cask claudeusagetracker
+curl -fsSL https://raw.githubusercontent.com/masorange/homebrew-claudeusagetracker/main/install.sh | bash
 ```
 
-Upgrade with `brew upgrade --cask claudeusagetracker`. See [INSTALL.md](INSTALL.md) for manual installation.
+The same command installs the app, updates it, and fixes installs from the old taps. It uses Homebrew
+(`masorange/claudeusagetracker`) and opens the app when it finishes. Plain Homebrew commands, the DMG and
+troubleshooting: [INSTALL.md](INSTALL.md).
 
 ## 🔐 First launch
 
@@ -100,7 +101,7 @@ Release process: [PUBLISHING.md](PUBLISHING.md). Contributions: [CONTRIBUTING.md
 
 - **`💰 ⚠︎` in the menu bar** — your corporate session expired; open the popover and press *Sign in*.
 - **"AI Platform changed its data format"** — the web API changed; update the app
-  (`brew upgrade --cask claudeusagetracker`).
+  (run the install command again, or `brew upgrade --cask claudeusagetracker`).
 - **Numbers differ from the web** — the data is refreshed roughly every hour on the server; press ⟳ and
   compare the "Data updated" time in the footer.
 - **Logs:** `log show --predicate 'subsystem == "com.claudeusage.tracker"' --last 1h`
