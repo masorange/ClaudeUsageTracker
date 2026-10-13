@@ -179,13 +179,15 @@ struct DashboardView: View {
         let formatter = RelativeDateTimeFormatter()
         formatter.locale = prefs.language.locale
         formatter.unitsStyle = .short
+        formatter.dateTimeStyle = .named
+        // Never phrase a just-finished update in the future ("in 0 s").
+        let now = Date()
+        func relative(_ date: Date) -> String { formatter.localizedString(for: min(date, now), relativeTo: now) }
         if onModelsTab {
             guard let updated = catalog.lastSuccess else { return "" }
-            let relative = formatter.localizedString(for: updated, relativeTo: Date())
-            return prefs.tr("Catalog updated \(relative)", "Catálogo actualizado \(relative)")
+            return prefs.tr("Catalog updated \(relative(updated))", "Catálogo actualizado \(relative(updated))")
         }
         guard let updated = model.report?.dataUpdatedAt ?? model.lastSuccess else { return "" }
-        let relative = formatter.localizedString(for: updated, relativeTo: Date())
-        return prefs.tr("Data updated \(relative)", "Datos actualizados \(relative)")
+        return prefs.tr("Data updated \(relative(updated))", "Datos actualizados \(relative(updated))")
     }
 }

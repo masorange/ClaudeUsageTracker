@@ -38,15 +38,15 @@ final class CurrencyService: ObservableObject {
         return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.2f", value)
     }
 
-    /// Per-million prices can be fractions of a cent; keep up to 4 decimals.
+    /// Per-million prices: 2 decimals, up to 4 only for sub-10-cent prices (e.g. embeddings) so they don't show as 0,00.
     func formatPrice(_ usd: Double, currency: DisplayCurrency, language: AppLanguage) -> String {
+        let value = currency == .eur ? usd * eurRate : usd
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.locale = language.locale
         formatter.currencyCode = currency.rawValue
         formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 4
-        let value = currency == .eur ? usd * eurRate : usd
+        formatter.maximumFractionDigits = abs(value) < 0.1 ? 4 : 2
         return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.4f", value)
     }
 }
