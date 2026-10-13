@@ -27,9 +27,10 @@
 - **🤖 Most used models** with their cost. When a model is on a **campaign** (free or discounted), the list
   price is shown struck through with the discount, e.g. `0,00 US$  ~~159,94 US$~~  −100 %`.
 - **🧠 Models tab**: every model your LiteLLM key can call (Claude, GPT, Gemini, Llama, Mistral, DeepSeek…),
-  grouped by vendor in collapsible sections with their logos, with context window and **list price per 1M tokens**
-  (input, output, cache). Models on a campaign this month are tagged (e.g. `−100 % este mes`); expand a row to copy
-  the exact model id.
+  grouped by vendor in collapsible sections with their logos, newest version first, with context window and the
+  **price the proxy charges today per 1M tokens** (input, output, cache). Campaigns are read from the proxy's own
+  pricing, so they are current: the list price is struck through and the model is tagged `Gratis` / `−50 %`.
+  Expand a row to copy the exact model id.
 - Spanish / English, USD / EUR, auto-refresh (5–60 min), open at login, update notifications.
 
 Only the **LiteLLM** provider is shown — it is the one that consumes your budget. Usage covered by a
@@ -69,7 +70,8 @@ Listing the models needs your personal LiteLLM key (the one Claude Code uses as 
 The app picks it up automatically from your Claude Code `settings.json` or a literal `export` in your shell profile;
 otherwise paste it once in the tab. It is stored in the macOS Keychain and only sent to `llm.tools.cloud.masorange.es`.
 After an app update macOS may ask once to let the new version read it — choose **Always Allow**.
-Prices come from LiteLLM's public list-price map; campaigns can only be shown for models you used this month.
+Prices come from the proxy's public cost map: its per-deployment entries carry the price actually charged
+(`claude-X` → campaign deployment, `claude-X-vertex` → list-price deployment), the public entries the list price.
 
 ## ⚙️ Settings
 
