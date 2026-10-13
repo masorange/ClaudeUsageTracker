@@ -68,4 +68,21 @@ final class APIKeyLocatorTests: XCTestCase {
         try write("export ANTHROPIC_AUTH_TOKEN=sk-elsewhere\n", to: ".bashrc")
         XCTAssertNil(APIKeyLocator.detect(home: home, environment: [:]))
     }
+
+    func testCutsChainedCommandsAfterTheValue() throws {
+        try write("""
+        export ANTHROPIC_BASE_URL=https://llm.tools.cloud.masorange.es; export ANTHROPIC_AUTH_TOKEN=sk-chained; claude
+        export ANTHROPIC_AUTH_TOKEN=sk-chained; export FOO=bar
+        """, to: ".zshrc")
+        XCTAssertEqual(APIKeyLocator.detect(home: home, environment: [:]), "sk-chained")
+    }
+
+    func testNeverReturnsDirectAnthropicKeys() throws {
+        try write("""
+        export ANTHROPIC_BASE_URL="https://llm.tools.cloud.masorange.es"
+        export ANTHROPIC_AUTH_TOKEN="sk-ant-api03-secret"
+        """, to: ".zshrc")
+        try write(#"{"env":{"ANTHROPIC_BASE_URL":"https://llm.tools.cloud.masorange.es","ANTHROPIC_API_KEY":"sk-ant-api03-other"}}"#, to: ".claude/settings.json")
+        XCTAssertNil(APIKeyLocator.detect(home: home, environment: [:]))
+    }
 }

@@ -59,6 +59,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear { catalog.prepare() }
         .frame(height: 460)
     }
 

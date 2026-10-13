@@ -72,6 +72,14 @@ private struct LossyPrice: Decodable {
     }
 }
 
+/// The Bearer key must never follow a redirect to another host.
+private final class SameHostRedirects: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(request.url?.host == LiteLLMClient.baseURL.host ? request : nil)
+    }
+}
+
 public enum LiteLLMError: Error, Equatable {
     case invalidKey
     case network(String)
@@ -89,7 +97,7 @@ public final class LiteLLMClient: @unchecked Sendable {
         configuration.httpShouldSetCookies = false
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.timeoutIntervalForRequest = 30
-        session = URLSession(configuration: configuration)
+        session = URLSession(configuration: configuration, delegate: SameHostRedirects(), delegateQueue: nil)
     }
 
     public func models(key: String) async throws -> [ProxyModel] {

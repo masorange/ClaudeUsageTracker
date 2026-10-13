@@ -41,4 +41,16 @@ final class CatalogCacheTests: XCTestCase {
         cache.clear()
         XCTAssertNil(cache.load())
     }
+
+    func testNeedsPriceRefreshWhenModelListChanges() {
+        let fetched = Date(timeIntervalSince1970: 1_800_000_000)
+        var priced = snapshot
+        priced.pricedModelIDs = ["claude-opus-5-5"]
+        let same = [ProxyModel(id: "claude-opus-5-5")]
+        let grown = same + [ProxyModel(id: "claude-foo-6")]
+        XCTAssertFalse(priced.needsPriceRefresh(for: same, now: fetched.addingTimeInterval(60)))
+        XCTAssertTrue(priced.needsPriceRefresh(for: grown, now: fetched.addingTimeInterval(60)))
+        XCTAssertTrue(priced.needsPriceRefresh(for: same, now: fetched.addingTimeInterval(90_000)))
+        XCTAssertTrue(snapshot.needsPriceRefresh(for: same, now: fetched.addingTimeInterval(60)), "legacy cache without ids")
+    }
 }

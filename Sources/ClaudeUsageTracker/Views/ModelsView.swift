@@ -12,7 +12,9 @@ struct ModelsView: View {
 
     var body: some View {
         Group {
-            if catalog.keySource == .none || changingKey {
+            if !catalog.isPrepared {
+                LoadingView(prefs: prefs)
+            } else if catalog.keySource == .none || changingKey {
                 APIKeyPrompt(catalog: catalog, prefs: prefs, invalid: catalog.state == .invalidKey,
                              onDone: changingKey ? { changingKey = false } : nil)
             } else if catalog.entries.isEmpty && catalog.state == .invalidKey {
@@ -27,7 +29,10 @@ struct ModelsView: View {
                 list
             }
         }
-        .task { await catalog.refreshIfStale() }
+        .task {
+            catalog.prepare()
+            await catalog.refreshIfStale()
+        }
     }
 
     private var list: some View {
@@ -180,6 +185,9 @@ struct ModelsView: View {
         switch catalog.state {
         case .offline:
             return prefs.tr("No connection. Showing the last catalog received.", "Sin conexión. Se muestra el último catálogo recibido.")
+        case .keychainDenied:
+            return prefs.tr("macOS denied access to the saved key. Open the tab again and choose \"Always Allow\", or save the key again.",
+                            "macOS ha denegado el acceso a la key guardada. Vuelve a abrir la pestaña y elige \"Permitir siempre\", o guarda la key de nuevo.")
         case .apiChanged:
             return prefs.tr("LiteLLM changed its data format. Check for an app update.",
                             "LiteLLM ha cambiado el formato de los datos. Busca una actualización de la app.")

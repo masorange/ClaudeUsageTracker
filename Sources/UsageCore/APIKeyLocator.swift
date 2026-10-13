@@ -35,7 +35,12 @@ public enum APIKeyLocator {
               let baseURL = env["ANTHROPIC_BASE_URL"] as? String,
               URL(string: baseURL)?.host == proxyHost else { return nil }
         let key = (env["ANTHROPIC_AUTH_TOKEN"] as? String) ?? (env["ANTHROPIC_API_KEY"] as? String)
-        return key.flatMap { $0.isEmpty ? nil : $0 }
+        return key.flatMap(usable)
+    }
+
+    /// Direct Anthropic keys must never be sent to the company proxy.
+    private static func usable(_ key: String) -> String? {
+        key.isEmpty || key.hasPrefix("sk-ant-") ? nil : key
     }
 
     /// Only literal values: exports built from variables or command substitution are ignored.
@@ -45,10 +50,11 @@ public enum APIKeyLocator {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             guard trimmed.hasPrefix(exportPrefix) else { continue }
             var value = String(trimmed.dropFirst(exportPrefix.count))
-            if let comment = value.range(of: " #") { value = String(value[..<comment.lowerBound]) }
+            // The value ends at the first unquoted separator: `; export …`, `&& …`, ` # comment`.
+            if let end = value.firstIndex(where: { ";&| \t#".contains($0) }) { value = String(value[..<end]) }
             value = value.trimmingCharacters(in: CharacterSet(charactersIn: "\"' "))
-            guard !value.isEmpty, !value.contains("$"), !value.contains("`") else { continue }
-            return value
+            guard !value.contains("$"), !value.contains("`"), let key = usable(value) else { continue }
+            return key
         }
         return nil
     }

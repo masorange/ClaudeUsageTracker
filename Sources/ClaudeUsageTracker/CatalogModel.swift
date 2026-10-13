@@ -7,7 +7,7 @@ enum KeySource: Equatable {
 }
 
 enum CatalogState: Equatable {
-    case idle, ok, noKey, invalidKey, offline, apiChanged
+    case idle, ok, noKey, invalidKey, offline, apiChanged, keychainDenied
     case failed(String)
 }
 
@@ -19,17 +19,23 @@ final class CatalogModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var lastSuccess: Date?
     @Published private(set) var keySource: KeySource = .none
+    /// False until the key source has been resolved (avoids flashing the key prompt).
+    @Published private(set) var isPrepared = false
 
     private let client = LiteLLMClient()
     private let cache = CatalogCache.standard
     private let logger = Logger(subsystem: "com.claudeusage.tracker", category: "catalog")
     private var snapshot: CatalogSnapshot?
     private var discounts: [String: Double] = [:]
+    /// Keychain result cached for the whole run: ad-hoc signed builds trigger a macOS prompt on each read
+    /// after an upgrade, so we read at most once (lazily, never at launch).
+    private var storedKey: APIKeyStore.LoadResult?
+    private var loadTask: Task<Void, Never>?
+    private var refreshQueued = false
 
     init() {
         snapshot = cache.load()
         lastSuccess = snapshot?.modelsFetchedAt
-        resolveKeySource()
         rebuild()
     }
 
@@ -38,14 +44,70 @@ final class CatalogModel: ObservableObject {
         rebuild()
     }
 
+    /// Resolves where the key comes from (reads the Keychain the first time only).
+    func prepare() {
+        if storedKey == nil { storedKey = APIKeyStore.load() }
+        switch storedKey {
+        case .found: keySource = .stored
+        default: keySource = detectedKey != nil ? .detected : .none
+        }
+        isPrepared = true
+    }
+
     func refreshIfStale(maxAge: TimeInterval = 300) async {
         if let lastSuccess, Date().timeIntervalSince(lastSuccess) < maxAge, state == .ok { return }
         await refresh()
     }
 
     func refresh() async {
-        guard !isLoading else { return }
-        resolveKeySource()
+        if let loadTask {
+            refreshQueued = true
+            await loadTask.value
+            return
+        }
+        // Unstructured on purpose: a view disappearing must not cancel a half-done download.
+        let task = Task { await self.load() }
+        loadTask = task
+        await task.value
+        loadTask = nil
+        if refreshQueued {
+            refreshQueued = false
+            await refresh()
+        }
+    }
+
+    func saveKey(_ key: String) async {
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if APIKeyStore.save(trimmed) {
+            storedKey = .found(trimmed)
+        } else {
+            logger.error("Could not save the LiteLLM key in the Keychain")
+            state = .failed("Keychain")
+        }
+        await refresh()
+    }
+
+    func forgetKey() {
+        APIKeyStore.delete()
+        storedKey = .notFound
+        prepare()
+        if keySource == .none {
+            entries = []
+            snapshot = nil
+            cache.clear()
+            state = .noKey
+        } else {
+            Task { await refresh() }
+        }
+    }
+
+    private func load() async {
+        prepare()
+        if case .denied = storedKey, detectedKey == nil {
+            state = .keychainDenied
+            return
+        }
         guard let key = effectiveKey else {
             state = .noKey
             return
@@ -56,14 +118,17 @@ final class CatalogModel: ObservableObject {
             let models = try await client.models(key: key)
             var prices = snapshot?.prices ?? [:]
             var pricesFetchedAt = snapshot?.pricesFetchedAt
-            if prices.isEmpty || !(snapshot?.pricesAreFresh() ?? false) {
-                // Prices are optional: without them the list is still useful.
+            var pricedModelIDs = snapshot?.pricedModelIDs
+            if snapshot?.needsPriceRefresh(for: models) ?? true {
+                // Prices are optional: without them the list is still useful, and nil dates retry next time.
                 if let full = try? await client.costMap() {
                     prices = ModelCatalog.prune(full, for: models)
                     pricesFetchedAt = Date()
+                    pricedModelIDs = models.map(\.id)
                 }
             }
-            let fresh = CatalogSnapshot(models: models, prices: prices, modelsFetchedAt: Date(), pricesFetchedAt: pricesFetchedAt)
+            let fresh = CatalogSnapshot(models: models, prices: prices, modelsFetchedAt: Date(),
+                                        pricesFetchedAt: pricesFetchedAt, pricedModelIDs: pricedModelIDs)
             snapshot = fresh
             cache.save(fresh)
             lastSuccess = fresh.modelsFetchedAt
@@ -83,41 +148,14 @@ final class CatalogModel: ObservableObject {
         }
     }
 
-    func saveKey(_ key: String) async {
-        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        APIKeyStore.save(trimmed)
-        await refresh()
-    }
-
-    func forgetKey() {
-        APIKeyStore.delete()
-        resolveKeySource()
-        if keySource == .none {
-            entries = []
-            snapshot = nil
-            cache.clear()
-            state = .noKey
-        }
-    }
-
     private var detectedKey: String? {
         APIKeyLocator.detect(home: FileManager.default.homeDirectoryForCurrentUser,
                              environment: ProcessInfo.processInfo.environment)
     }
 
     private var effectiveKey: String? {
-        APIKeyStore.load() ?? detectedKey
-    }
-
-    private func resolveKeySource() {
-        if APIKeyStore.load() != nil {
-            keySource = .stored
-        } else if detectedKey != nil {
-            keySource = .detected
-        } else {
-            keySource = .none
-        }
+        if case .found(let key) = storedKey { return key }
+        return detectedKey
     }
 
     private func rebuild() {

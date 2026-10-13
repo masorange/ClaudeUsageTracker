@@ -92,6 +92,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         popover.contentViewController?.view.window?.makeKey()
         Task { await model.refreshIfStale() }
+        // The catalog is only refreshed while its tab is the one being shown (it may need a Keychain read).
+        if prefs.selectedTab == .models {
+            Task { await catalog.refreshIfStale() }
+        }
     }
 
     private func updateTitle() {
