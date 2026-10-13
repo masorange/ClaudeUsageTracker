@@ -37,3 +37,6 @@ get_download_stats.sh
 
 # Logo (tracked)
 !logo.png
+
+# Superpowers workspaces
+.superpowers/

@@ -1,0 +1,63 @@
+{
+  "email": "jane.doe@example.com",
+  "person_key": "I:00000001",
+  "display_email": "jane.doe@example.com",
+  "name": "JANE DOE",
+  "emails": [
+    "jane.doe@example.com"
+  ],
+  "user_ids": [
+    "jane.doe@example.com"
+  ],
+  "teams": [
+    "Bronze"
+  ],
+  "area": "Technology",
+  "subareas": [
+    "IT",
+    "DX SW Engineering",
+    "Frontend Multitenant"
+  ],
+  "manager_person_key": "I:00000002",
+  "manager_email": "boss@example.com",
+  "manager_name": "JOHN BOSS",
+  "dashboard_roles": [],
+  "owner_area_scope": null,
+  "owner_area_label": null,
+  "owner_areas": [],
+  "owner_area_labels": [],
+  "delivery_dn_areas": [],
+  "delivery_dn_area_labels": [],
+  "delivery_areas": [],
+  "delivery_area_labels": [],
+  "provider": "litellm",
+  "max_budget": 205,
+  "budget_spend": null,
+  "budget_team": "Bronze",
+  "budget_duration": "1mo",
+  "budget_reset_at": "2026-11-01 00:00:00",
+  "providers": [
+    "litellm",
+    "claude_enterprise"
+  ],
+  "budgets": [
+    {
+      "provider": "litellm",
+      "max_budget": 205,
+      "budget_spend": null,
+      "budget_team": "Bronze",
+      "budget_duration": "1mo",
+      "budget_reset_at": "2026-11-01 00:00:00"
+    },
+    {
+      "provider": "claude_enterprise",
+      "max_budget": 1,
+      "budget_spend": 0,
+      "budget_team": null,
+      "budget_duration": "1mo",
+      "budget_reset_at": "2026-11-01"
+    }
+  ],
+  "antigravity": false,
+  "gemini": false
+}
