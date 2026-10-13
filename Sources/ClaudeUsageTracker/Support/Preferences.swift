@@ -17,6 +17,11 @@ enum DisplayCurrency: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum AppTab: String, CaseIterable, Identifiable {
+    case usage, models
+    var id: String { rawValue }
+}
+
 /// User settings persisted in UserDefaults.
 final class Preferences: ObservableObject {
     static let refreshOptions = [5, 15, 30, 60]
@@ -26,6 +31,7 @@ final class Preferences: ObservableObject {
         static let language = "language"
         static let currency = "currency"
         static let refreshMinutes = "refreshMinutes"
+        static let selectedTab = "selectedTab"
     }
 
     private let defaults: UserDefaults
@@ -42,6 +48,9 @@ final class Preferences: ObservableObject {
     @Published var refreshMinutes: Int {
         didSet { defaults.set(refreshMinutes, forKey: Keys.refreshMinutes) }
     }
+    @Published var selectedTab: AppTab {
+        didSet { defaults.set(selectedTab.rawValue, forKey: Keys.selectedTab) }
+    }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -51,6 +60,7 @@ final class Preferences: ObservableObject {
         currency = defaults.string(forKey: Keys.currency).flatMap(DisplayCurrency.init(rawValue:)) ?? .usd
         let minutes = defaults.integer(forKey: Keys.refreshMinutes)
         refreshMinutes = Self.refreshOptions.contains(minutes) ? minutes : 15
+        selectedTab = defaults.string(forKey: Keys.selectedTab).flatMap(AppTab.init(rawValue:)) ?? .usage
     }
 
     /// Picks the string for the current language.

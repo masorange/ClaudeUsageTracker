@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let currency = CurrencyService()
     private let updates = UpdateChecker()
     private let session = IAPSession()
+    private let catalog = CatalogModel()
     private lazy var model = AppModel(session: session)
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
@@ -36,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         popover.behavior = .transient
         let hosting = NSHostingController(
-            rootView: DashboardView(model: model, prefs: prefs, currency: currency, updates: updates)
+            rootView: DashboardView(model: model, prefs: prefs, currency: currency, updates: updates, catalog: catalog)
         )
         // Let the popover follow SwiftUI's size so it grows downwards from the menu bar instead of off-screen.
         hosting.sizingOptions = [.preferredContentSize]
@@ -46,6 +47,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .merge(with: prefs.objectWillChange, currency.objectWillChange)
             .debounce(for: .milliseconds(50), scheduler: RunLoop.main)
             .sink { [weak self] _ in self?.updateTitle() }
+            .store(in: &cancellables)
+        model.$report
+            .sink { [weak self] report in self?.catalog.updateDiscounts(from: report) }
             .store(in: &cancellables)
         prefs.$refreshMinutes
             .removeDuplicates()

@@ -6,6 +6,7 @@ struct DashboardView: View {
     @ObservedObject var prefs: Preferences
     @ObservedObject var currency: CurrencyService
     @ObservedObject var updates: UpdateChecker
+    @ObservedObject var catalog: CatalogModel
     @State private var showingSettings = false
 
     var body: some View {
@@ -13,7 +14,9 @@ struct DashboardView: View {
             header
             Divider()
             if showingSettings {
-                SettingsView(model: model, prefs: prefs)
+                SettingsView(model: model, prefs: prefs, catalog: catalog)
+            } else if prefs.selectedTab == .models {
+                ModelsView(catalog: catalog, prefs: prefs, price: price)
             } else {
                 content
             }
@@ -28,22 +31,40 @@ struct DashboardView: View {
         { currency.format($0, currency: prefs.currency, language: prefs.language) }
     }
 
+    private var price: (Double) -> String {
+        { currency.formatPrice($0, currency: prefs.currency, language: prefs.language) }
+    }
+
+    private var onModelsTab: Bool { prefs.selectedTab == .models && !showingSettings }
+    private var isLoading: Bool { onModelsTab ? catalog.isLoading : model.isLoading }
+
     private var header: some View {
         HStack(spacing: 10) {
-            Text(showingSettings ? prefs.tr("Settings", "Ajustes") : monthTitle)
-                .font(.headline)
+            if showingSettings {
+                Text(prefs.tr("Settings", "Ajustes")).font(.headline)
+            } else {
+                Picker("", selection: $prefs.selectedTab) {
+                    Text(prefs.tr("Usage", "Consumo")).tag(AppTab.usage)
+                    Text(prefs.tr("Models", "Modelos")).tag(AppTab.models)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 200)
+            }
             Spacer()
-            if model.isLoading {
+            if isLoading {
                 ProgressView().controlSize(.small)
             }
             Button {
-                Task { await model.refresh() }
+                Task {
+                    if onModelsTab { await catalog.refresh() } else { await model.refresh() }
+                }
             } label: {
                 Image(systemName: "arrow.clockwise")
                     .accessibilityLabel(prefs.tr("Refresh", "Actualizar"))
             }
             .buttonStyle(.borderless)
-            .disabled(model.isLoading)
+            .disabled(isLoading)
             .help(prefs.tr("Refresh", "Actualizar"))
             Button {
                 showingSettings.toggle()
@@ -70,6 +91,11 @@ struct DashboardView: View {
         if let report = model.report {
             VStack(alignment: .leading, spacing: 0) {
                 statusBanner
+                Text(monthTitle)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 10)
                 BudgetCard(report: report, prefs: prefs, money: money)
                 Divider()
                 TokensChart(report: report, prefs: prefs, money: money)
@@ -150,10 +176,15 @@ struct DashboardView: View {
     }
 
     private var freshnessText: String {
-        guard let updated = model.report?.dataUpdatedAt ?? model.lastSuccess else { return "" }
         let formatter = RelativeDateTimeFormatter()
         formatter.locale = prefs.language.locale
         formatter.unitsStyle = .short
+        if onModelsTab {
+            guard let updated = catalog.lastSuccess else { return "" }
+            let relative = formatter.localizedString(for: updated, relativeTo: Date())
+            return prefs.tr("Catalog updated \(relative)", "Catálogo actualizado \(relative)")
+        }
+        guard let updated = model.report?.dataUpdatedAt ?? model.lastSuccess else { return "" }
         let relative = formatter.localizedString(for: updated, relativeTo: Date())
         return prefs.tr("Data updated \(relative)", "Datos actualizados \(relative)")
     }

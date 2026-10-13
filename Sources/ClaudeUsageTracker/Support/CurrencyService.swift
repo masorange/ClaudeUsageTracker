@@ -37,4 +37,16 @@ final class CurrencyService: ObservableObject {
         let value = currency == .eur ? usd * eurRate : usd
         return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.2f", value)
     }
+
+    /// Per-million prices can be fractions of a cent; keep up to 4 decimals.
+    func formatPrice(_ usd: Double, currency: DisplayCurrency, language: AppLanguage) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.locale = language.locale
+        formatter.currencyCode = currency.rawValue
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 4
+        let value = currency == .eur ? usd * eurRate : usd
+        return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.4f", value)
+    }
 }
