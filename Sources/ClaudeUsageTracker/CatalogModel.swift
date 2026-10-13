@@ -26,7 +26,6 @@ final class CatalogModel: ObservableObject {
     private let cache = CatalogCache.standard
     private let logger = Logger(subsystem: "com.claudeusage.tracker", category: "catalog")
     private var snapshot: CatalogSnapshot?
-    private var discounts: [String: Double] = [:]
     /// Keychain result cached for the whole run: ad-hoc signed builds trigger a macOS prompt on each read
     /// after an upgrade, so we read at most once (lazily, never at launch).
     private var storedKey: APIKeyStore.LoadResult?
@@ -36,11 +35,6 @@ final class CatalogModel: ObservableObject {
     init() {
         snapshot = cache.load()
         lastSuccess = snapshot?.modelsFetchedAt
-        rebuild()
-    }
-
-    func updateDiscounts(from report: MonthReport?) {
-        discounts = ModelCatalog.discounts(from: report)
         rebuild()
     }
 
@@ -160,6 +154,6 @@ final class CatalogModel: ObservableObject {
 
     private func rebuild() {
         guard let snapshot else { return }
-        entries = ModelCatalog.build(models: snapshot.models, prices: snapshot.prices, discounts: discounts)
+        entries = ModelCatalog.build(models: snapshot.models, prices: snapshot.prices)
     }
 }

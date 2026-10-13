@@ -88,11 +88,15 @@ public struct CatalogEntry: Codable, Equatable, Sendable, Identifiable {
     public let kind: ModelKind
     public let maxInputTokens: Int?
     public let maxOutputTokens: Int?
+    /// Price charged today by the proxy (its deployment price), falling back to the public list price.
     public let inputPerMillion: Double?
     public let outputPerMillion: Double?
     public let cacheReadPerMillion: Double?
     public let cacheWritePerMillion: Double?
-    /// Campaign discount observed in this month's spend (0…1).
+    /// Public list price, shown struck through when a campaign makes the current price lower.
+    public let listInputPerMillion: Double?
+    public let listOutputPerMillion: Double?
+    /// Current campaign discount (0…1) = 1 − current price / list price; nil when there is none.
     public let discount: Double?
     public let isTest: Bool
     public let isAlias: Bool
@@ -152,54 +156,122 @@ public enum ModelCatalog {
         return lower.prefix(1).uppercased() + lower.dropFirst()
     }
 
-    /// Keeps only the cost-map entries used by `models` (what we persist on disk).
+    /// The proxy's own deployments appear in the cost map keyed by deployment id, with `base_model` and a routing
+    /// `tier`. Verified 2026-10-13 with `x-litellm-model-id`: `claude-X` routes to the `free` deployment (where
+    /// campaigns are priced) and `claude-X-vertex` to the `paid` one.
+    static func deploymentPrice(for id: String, in prices: [String: ModelPrice]) -> ModelPrice? {
+        let base = baseID(id)
+        let wantedTier = id.hasSuffix(vertexSuffix) ? "paid" : "free"
+        let candidates = prices.values.filter { price in
+            guard let model = price.baseModel else { return false }
+            return normalizedBase(model) == base
+        }
+        return candidates.first { $0.tier == wantedTier } ?? (candidates.count == 1 ? candidates.first : nil)
+    }
+
+    /// `claude-haiku-4-5@20251001` (Vertex naming) → `claude-haiku-4-5-20251001`.
+    private static func normalizedBase(_ model: String) -> String {
+        model.replacingOccurrences(of: "@", with: "-")
+    }
+
+    /// Keeps only the cost-map entries used by `models` (what we persist on disk): list prices and deployments.
     public static func prune(_ prices: [String: ModelPrice], for models: [ProxyModel]) -> [String: ModelPrice] {
         var pruned: [String: ModelPrice] = [:]
+        let bases = Set(models.map { baseID($0.id) })
         for model in models {
             if let key = priceKeys(for: model.id).first(where: { prices[$0] != nil }) {
                 pruned[key] = prices[key]
             }
         }
+        for (key, price) in prices {
+            if let model = price.baseModel, bases.contains(normalizedBase(model)) { pruned[key] = price }
+        }
         return pruned
     }
 
-    /// Campaign discounts by display name, from the models used this month.
-    public static func discounts(from report: MonthReport?) -> [String: Double] {
-        let pairs = report?.models.compactMap { model in model.discount.map { (model.displayName, $0) } } ?? []
-        return Dictionary(pairs, uniquingKeysWith: { first, _ in first })
+    /// Version numbers in a model id, used to sort newest first: `claude-opus-4-8` → [4, 8], `gpt-5.4-mini` → [5, 4].
+    /// Dates (`20251001`) and parameter counts (`70b`) are ignored.
+    public static func version(of id: String) -> [Int] {
+        let tokens = baseID(id.split(separator: "/").last.map(String.init) ?? id).lowercased().split(separator: "-").map(String.init)
+        var numbers: [Int] = []
+        for token in tokens {
+            let isDate = token.count == 8 && token.allSatisfy(\.isNumber)
+            let isSize = token.hasSuffix("b") && token.dropLast().allSatisfy { $0.isNumber || $0 == "." } && token.count > 1
+            if isDate || isSize { continue }
+            let isPlainNumber = token.allSatisfy(\.isNumber)
+            if !numbers.isEmpty {
+                // Claude ids spell versions as separate tokens (opus-4-8); anything else ends the version.
+                guard isPlainNumber else { break }
+                numbers.append(Int(token) ?? 0)
+                continue
+            }
+            guard let range = token.range(of: #"\d+(\.\d+)*"#, options: .regularExpression) else { continue }
+            numbers = token[range].split(separator: ".").compactMap { Int($0) }
+        }
+        return numbers
     }
 
-    public static func build(models: [ProxyModel], prices: [String: ModelPrice], discounts: [String: Double]) -> [CatalogEntry] {
+    /// Bigger Claude tiers first among models of the same version.
+    private static func familyRank(_ id: String) -> Int {
+        let lower = id.lowercased()
+        for (index, family) in ["fable", "opus", "sonnet", "haiku"].enumerated() where lower.contains(family) {
+            return index
+        }
+        return 4
+    }
+
+    private static func perMillion(_ value: Double?) -> Double? {
+        value.map { $0 * 1_000_000 }
+    }
+
+    /// 1 − current / list on the input price (output when input is not priced); nil below 0.5 %.
+    static func campaignDiscount(current: ModelPrice?, list: ModelPrice?) -> Double? {
+        guard let current, let list else { return nil }
+        let pairs = [(current.inputCostPerToken, list.inputCostPerToken), (current.outputCostPerToken, list.outputCostPerToken)]
+        guard let (now, base) = pairs.first(where: { ($0.1 ?? 0) > 0 && $0.0 != nil }).map({ ($0.0!, $0.1!) }) else { return nil }
+        let discount = 1 - now / base
+        return discount > 0.005 ? discount : nil
+    }
+
+    public static func build(models: [ProxyModel], prices: [String: ModelPrice]) -> [CatalogEntry] {
         models.map { model in
-            let price = price(for: model.id, in: prices)
+            let list = price(for: model.id, in: prices)
+            let current = deploymentPrice(for: model.id, in: prices) ?? list
             let lower = model.id.lowercased()
-            let entry = CatalogEntry(
+            let hasPrice = current?.inputCostPerToken != nil || current?.outputCostPerToken != nil
+            return CatalogEntry(
                 id: model.id,
                 displayName: displayName(for: model.id),
                 provider: ModelProvider(modelID: model.id),
-                kind: ModelKind(mode: model.mode ?? price?.mode, id: model.id),
-                maxInputTokens: model.maxInputTokens ?? price?.maxInputTokens,
-                maxOutputTokens: model.maxOutputTokens ?? price?.maxOutputTokens,
-                inputPerMillion: price?.inputCostPerToken.map { $0 * 1_000_000 },
-                outputPerMillion: price?.outputCostPerToken.map { $0 * 1_000_000 },
-                cacheReadPerMillion: price?.cacheReadInputTokenCost.map { $0 * 1_000_000 },
-                cacheWritePerMillion: price?.cacheCreationInputTokenCost.map { $0 * 1_000_000 },
-                discount: discounts[ModelNames.displayName(for: baseID(model.id))],
+                kind: ModelKind(mode: model.mode ?? list?.mode ?? current?.mode, id: model.id),
+                maxInputTokens: model.maxInputTokens ?? list?.maxInputTokens,
+                maxOutputTokens: model.maxOutputTokens ?? list?.maxOutputTokens,
+                inputPerMillion: perMillion(current?.inputCostPerToken),
+                outputPerMillion: perMillion(current?.outputCostPerToken),
+                cacheReadPerMillion: perMillion(current?.cacheReadInputTokenCost ?? list?.cacheReadInputTokenCost),
+                cacheWritePerMillion: perMillion(current?.cacheCreationInputTokenCost ?? list?.cacheCreationInputTokenCost),
+                listInputPerMillion: perMillion(list?.inputCostPerToken),
+                listOutputPerMillion: perMillion(list?.outputCostPerToken),
+                discount: campaignDiscount(current: current, list: list),
                 isTest: lower.contains("fake-") || lower.contains("-prueba") || lower == "all-proxy-models",
-                isAlias: false
+                isAlias: !hasPrice && !model.id.contains(where: \.isNumber)
             )
-            let isAlias = !entry.hasPrice && !model.id.contains(where: \.isNumber)
-            return CatalogEntry(id: entry.id, displayName: entry.displayName, provider: entry.provider, kind: entry.kind,
-                                maxInputTokens: entry.maxInputTokens, maxOutputTokens: entry.maxOutputTokens,
-                                inputPerMillion: entry.inputPerMillion, outputPerMillion: entry.outputPerMillion,
-                                cacheReadPerMillion: entry.cacheReadPerMillion, cacheWritePerMillion: entry.cacheWritePerMillion,
-                                discount: entry.discount, isTest: entry.isTest, isAlias: isAlias)
         }
-        .sorted { lhs, rhs in
-            if lhs.provider != rhs.provider { return lhs.provider < rhs.provider }
-            if lhs.hasPrice != rhs.hasPrice { return lhs.hasPrice }
-            return lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
-        }
+        .sorted(by: newestFirst)
+    }
+
+    /// Provider order, then newest version first; same version: bigger family first, Vertex right after its base;
+    /// models without a version (aliases) last.
+    static func newestFirst(_ lhs: CatalogEntry, _ rhs: CatalogEntry) -> Bool {
+        if lhs.provider != rhs.provider { return lhs.provider < rhs.provider }
+        let (lv, rv) = (version(of: lhs.id), version(of: rhs.id))
+        if lv.isEmpty != rv.isEmpty { return !lv.isEmpty }
+        if lv != rv { return rv.lexicographicallyPrecedes(lv) }
+        let (lf, rf) = (familyRank(lhs.id), familyRank(rhs.id))
+        if lf != rf { return lf < rf }
+        let (lb, rb) = (baseID(lhs.id), baseID(rhs.id))
+        if lb != rb { return lb.localizedStandardCompare(rb) == .orderedAscending }
+        return !lhs.id.hasSuffix(vertexSuffix) && rhs.id.hasSuffix(vertexSuffix)
     }
 
     public static func filter(_ entries: [CatalogEntry], kind: ModelKind?, query: String) -> [CatalogEntry] {

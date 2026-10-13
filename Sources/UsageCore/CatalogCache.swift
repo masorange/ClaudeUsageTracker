@@ -39,10 +39,10 @@ public struct CatalogCache: Sendable {
         self.fileURL = fileURL
     }
 
-    /// `~/Library/Application Support/ClaudeUsageTracker/catalog.json`
+    /// `~/Library/Application Support/ClaudeUsageTracker/catalog-v2.json` (v1 caches lack deployment prices).
     public static var standard: CatalogCache {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return CatalogCache(fileURL: support.appendingPathComponent("ClaudeUsageTracker/catalog.json"))
+        return CatalogCache(fileURL: support.appendingPathComponent("ClaudeUsageTracker/catalog-v2.json"))
     }
 
     public func load() -> CatalogSnapshot? {

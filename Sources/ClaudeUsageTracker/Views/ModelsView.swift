@@ -80,7 +80,8 @@ struct ModelsView: View {
                 .padding(.bottom, 4)
             }
             .frame(height: 400)
-            Text(prefs.tr("List prices per 1M tokens, from LiteLLM", "Precios de tarifa por 1M tokens, según LiteLLM"))
+            Text(prefs.tr("Current proxy prices per 1M tokens (list price struck through during campaigns)",
+                          "Precios actuales del proxy por 1M tokens (tarifa tachada si hay campaña)"))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
@@ -165,7 +166,8 @@ struct ModelsView: View {
                         .background(Color.secondary.opacity(0.12), in: Capsule())
                     Spacer()
                     if !open, let best = entries.compactMap(\.discount).max() {
-                        Text("−" + Formatting.percent(best, locale: prefs.language.locale))
+                        Text(best >= 0.995 ? prefs.tr("Free models", "Modelos gratis")
+                                           : prefs.tr("Up to −", "Hasta −") + Formatting.percent(best, locale: prefs.language.locale))
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.green)
                     }
@@ -212,13 +214,7 @@ struct ModelsView: View {
                 }
                 Spacer(minLength: 4)
                 if let discount = entry.discount {
-                    Text("−" + Formatting.percent(discount, locale: prefs.language.locale) + prefs.tr(" this month", " este mes"))
-                        .font(.caption2.weight(.semibold))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.green.opacity(0.15), in: Capsule())
-                        .foregroundStyle(.green)
-                        .lineLimit(1)
+                    campaignBadge(discount)
                 }
                 Image(systemName: "chevron.right")
                     .font(.caption2.weight(.semibold))
@@ -230,6 +226,12 @@ struct ModelsView: View {
                     Text("\(Formatting.tokens(context, locale: prefs.language.locale)) ctx")
                 }
                 Spacer(minLength: 4)
+                if entry.discount != nil, let list = listPriceLine(entry) {
+                    Text(list)
+                        .strikethrough()
+                        .foregroundStyle(.tertiary)
+                        .monospacedDigit()
+                }
                 Text(priceLine(entry))
                     .monospacedDigit()
             }
@@ -301,6 +303,27 @@ struct ModelsView: View {
             parts.append(prefs.tr("Out \(price(output))", "Salida \(price(output))"))
         }
         return parts.isEmpty ? prefs.tr("No published list price", "Sin tarifa publicada") : parts.joined(separator: " · ")
+    }
+
+    /// Current campaign from the proxy's pricing (not this month's past usage).
+    private func campaignBadge(_ discount: Double) -> some View {
+        let text = discount >= 0.995
+            ? prefs.tr("Free", "Gratis")
+            : "−" + Formatting.percent(discount, locale: prefs.language.locale)
+        return Text(text)
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.green.opacity(0.15), in: Capsule())
+            .foregroundStyle(.green)
+            .lineLimit(1)
+            .help(prefs.tr("Campaign: the proxy currently charges less than the list price.",
+                           "Campaña: el proxy cobra ahora menos que el precio de tarifa."))
+    }
+
+    private func listPriceLine(_ entry: CatalogEntry) -> String? {
+        guard let input = entry.listInputPerMillion else { return nil }
+        return price(input)
     }
 
     private func tag(_ text: String) -> some View {

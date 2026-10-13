@@ -28,6 +28,9 @@ public struct ModelPrice: Codable, Equatable, Sendable {
     public var maxInputTokens: Int?
     public var maxOutputTokens: Int?
     public var mode: String?
+    /// Only on the proxy's own deployment entries (keyed by deployment id): routing tier and underlying model.
+    public var tier: String?
+    public var baseModel: String?
 
     enum CodingKeys: String, CodingKey {
         case inputCostPerToken = "input_cost_per_token"
@@ -37,11 +40,14 @@ public struct ModelPrice: Codable, Equatable, Sendable {
         case maxInputTokens = "max_input_tokens"
         case maxOutputTokens = "max_output_tokens"
         case mode
+        case tier
+        case baseModel = "base_model"
     }
 
     public init(inputCostPerToken: Double? = nil, outputCostPerToken: Double? = nil,
                 cacheReadInputTokenCost: Double? = nil, cacheCreationInputTokenCost: Double? = nil,
-                maxInputTokens: Int? = nil, maxOutputTokens: Int? = nil, mode: String? = nil) {
+                maxInputTokens: Int? = nil, maxOutputTokens: Int? = nil, mode: String? = nil,
+                tier: String? = nil, baseModel: String? = nil) {
         self.inputCostPerToken = inputCostPerToken
         self.outputCostPerToken = outputCostPerToken
         self.cacheReadInputTokenCost = cacheReadInputTokenCost
@@ -49,6 +55,8 @@ public struct ModelPrice: Codable, Equatable, Sendable {
         self.maxInputTokens = maxInputTokens
         self.maxOutputTokens = maxOutputTokens
         self.mode = mode
+        self.tier = tier
+        self.baseModel = baseModel
     }
 
     public init(from decoder: Decoder) throws {
@@ -60,6 +68,8 @@ public struct ModelPrice: Codable, Equatable, Sendable {
         maxInputTokens = try? container.decodeIfPresent(Int.self, forKey: .maxInputTokens)
         maxOutputTokens = try? container.decodeIfPresent(Int.self, forKey: .maxOutputTokens)
         mode = try? container.decodeIfPresent(String.self, forKey: .mode)
+        tier = try? container.decodeIfPresent(String.self, forKey: .tier)
+        baseModel = try? container.decodeIfPresent(String.self, forKey: .baseModel)
     }
 }
 

@@ -48,9 +48,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .debounce(for: .milliseconds(50), scheduler: RunLoop.main)
             .sink { [weak self] _ in self?.updateTitle() }
             .store(in: &cancellables)
-        model.$report
-            .sink { [weak self] report in self?.catalog.updateDiscounts(from: report) }
-            .store(in: &cancellables)
         prefs.$refreshMinutes
             .removeDuplicates()
             .sink { [weak self] minutes in self?.model.startAutoRefresh(minutes: minutes) }

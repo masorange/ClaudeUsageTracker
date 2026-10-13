@@ -2,10 +2,10 @@ import XCTest
 @testable import UsageCore
 
 final class ModelCatalogTests: XCTestCase {
-    private func catalog(discounts: [String: Double] = [:]) throws -> [CatalogEntry] {
+    private func catalog() throws -> [CatalogEntry] {
         let models = try JSONDecoder.api.decode(ProxyModelListFixture.self, from: Fixture.data("litellm-models")).data
         let prices = try LiteLLMClient.decodeCostMap(Fixture.data("litellm-cost-map"))
-        return ModelCatalog.build(models: models, prices: prices, discounts: discounts)
+        return ModelCatalog.build(models: models, prices: prices)
     }
 
     private func entry(_ id: String, in entries: [CatalogEntry]) throws -> CatalogEntry {
@@ -83,30 +83,67 @@ final class ModelCatalogTests: XCTestCase {
         XCTAssertTrue(try entry("all-proxy-models", in: entries).isTest)
     }
 
-    func testCampaignDiscountAppliesToAllVariants() throws {
-        let entries = try catalog(discounts: ["Opus 5.5": 1.0])
-        XCTAssertEqual(try entry("claude-opus-5-5", in: entries).discount, 1.0)
-        XCTAssertEqual(try entry("claude-opus-5-5-vertex", in: entries).discount, 1.0)
-        XCTAssertNil(try entry("claude-sonnet-5-5", in: entries).discount)
+    func testCurrentPriceComesFromTheProxyDeployment() throws {
+        let entries = try catalog()
+        // Campaign route (no suffix → tier "free" deployment): Sonnet 5.5 at half price.
+        let sonnet = try entry("claude-sonnet-5-5", in: entries)
+        XCTAssertEqual(sonnet.inputPerMillion ?? -1, 1, accuracy: 1e-9)
+        XCTAssertEqual(sonnet.outputPerMillion ?? -1, 5, accuracy: 1e-9)
+        XCTAssertEqual(sonnet.listInputPerMillion ?? -1, 2, accuracy: 1e-9)
+        XCTAssertEqual(sonnet.listOutputPerMillion ?? -1, 10, accuracy: 1e-9)
+        XCTAssertEqual(sonnet.discount ?? 0, 0.5, accuracy: 1e-9)
+        // Vertex route → tier "paid" deployment at list price.
+        let vertex = try entry("claude-sonnet-5-5-vertex", in: entries)
+        XCTAssertEqual(vertex.inputPerMillion ?? -1, 2, accuracy: 1e-9)
+        XCTAssertNil(vertex.discount)
+        // Free campaign.
+        let haiku = try entry("claude-haiku-5-5", in: entries)
+        XCTAssertEqual(haiku.inputPerMillion, 0)
+        XCTAssertEqual(haiku.discount ?? 0, 1, accuracy: 1e-9)
+        // Opus 5.5's campaign ended: deployment back at list price.
+        let opus = try entry("claude-opus-5-5", in: entries)
+        XCTAssertEqual(opus.inputPerMillion ?? -1, 4, accuracy: 1e-9)
+        XCTAssertNil(opus.discount)
     }
 
-    func testDiscountsFromMonthReport() throws {
-        let report = MonthReport.build(me: try Fixture.decode("me"), glance: try Fixture.decode("month-glance"),
-                                       daily: try Fixture.decode("daily"), byModel: try Fixture.decode("by-model"),
-                                       freshness: nil, today: TestCalendar.date(2026, 10, 13), calendar: TestCalendar.madrid)
-        let discounts = ModelCatalog.discounts(from: report)
-        XCTAssertEqual(discounts["Opus 5.5"] ?? 0, 1, accuracy: 1e-9)
-        XCTAssertEqual(discounts["Sonnet 5.5"] ?? 0, 0.785005147941914, accuracy: 1e-9)
-        XCTAssertTrue(ModelCatalog.discounts(from: nil).isEmpty)
+    func testModelsWithoutDeploymentEntryUseTheListPrice() throws {
+        let gpt = try entry("gpt-5", in: try catalog())
+        XCTAssertEqual(gpt.inputPerMillion ?? -1, 1.25, accuracy: 1e-9)
+        XCTAssertEqual(gpt.listInputPerMillion ?? -1, 1.25, accuracy: 1e-9)
+        XCTAssertNil(gpt.discount)
     }
 
-    func testSortsByProviderThenPricedFirst() throws {
+    func testVersionParsing() {
+        let cases: [(String, [Int])] = [
+            ("claude-opus-5-5", [5, 5]), ("claude-haiku-4-5-20251001", [4, 5]), ("claude-opus-5-5-vertex", [5, 5]),
+            ("gpt-5.4-mini", [5, 4]), ("gemini-2.5-flash-lite", [2, 5]), ("llama-3.3-70b", [3, 3]), ("o3-mini", [3]),
+            ("gpt-4o", [4]), ("qwen3.6", [3, 6]), ("kimi-k2-thinking", [2]), ("deepseek-v3.2", [3, 2]),
+            ("gemma-4-26b-a4b-it", [4]), ("claude-sonnet", []), ("gpt-oss-120b", []),
+        ]
+        for (id, expected) in cases {
+            XCTAssertEqual(ModelCatalog.version(of: id), expected, id)
+        }
+    }
+
+    func testSortsNewestFirstWithinProvider() throws {
         let entries = try catalog()
         XCTAssertEqual(entries.first?.provider, .anthropic)
         XCTAssertEqual(entries.last?.provider, .other)
-        let anthropic = entries.filter { $0.provider == .anthropic }
-        let firstUnpriced = try XCTUnwrap(anthropic.firstIndex { !$0.hasPrice })
-        XCTAssertTrue(anthropic[firstUnpriced...].allSatisfy { !$0.hasPrice })
+        let anthropic = entries.filter { $0.provider == .anthropic }.map(\.id)
+        XCTAssertEqual(Array(anthropic.prefix(7)), [
+            "claude-opus-5-5", "claude-opus-5-5-vertex", "claude-sonnet-5-5", "claude-sonnet-5-5-vertex",
+            "claude-haiku-5-5", "claude-haiku-5-5-vertex", "claude-fable-5-1",
+        ])
+        func index(_ id: String) -> Int { anthropic.firstIndex(of: id) ?? .max }
+        XCTAssertLessThan(index("claude-opus-4-8"), index("claude-opus-4-7"))
+        XCTAssertLessThan(index("claude-opus-4-7"), index("claude-opus-4-6"))
+        XCTAssertLessThan(index("claude-opus-4-6"), index("claude-opus-4-5"))
+        XCTAssertEqual(Set(anthropic.suffix(2)), ["claude-sonnet", "claude-opus"], "aliases last")
+        let openai = entries.filter { $0.provider == .openai }.map(\.id)
+        func oindex(_ id: String) -> Int { openai.firstIndex(of: id) ?? .max }
+        XCTAssertLessThan(oindex("gpt-5.4"), oindex("gpt-5"))
+        XCTAssertLessThan(oindex("gpt-5"), oindex("gpt-4.1"))
+        XCTAssertLessThan(oindex("gpt-4.1"), oindex("gpt-3.5-turbo"))
     }
 
     func testFilterByKindAndQuery() throws {
@@ -125,11 +162,11 @@ final class ModelCatalogTests: XCTestCase {
         XCTAssertEqual(groups.map(\.provider), groups.map(\.provider).sorted())
     }
 
-    func testPruneKeepsOnlyReferencedPrices() throws {
+    func testPruneKeepsListPriceAndDeploymentsOfListedModels() throws {
         let models = [ProxyModel(id: "claude-opus-5-5-vertex"), ProxyModel(id: "unknown-model")]
         let full = try LiteLLMClient.decodeCostMap(Fixture.data("litellm-cost-map"))
         let pruned = ModelCatalog.prune(full, for: models)
-        XCTAssertEqual(Array(pruned.keys), ["claude-opus-5-5"])
+        XCTAssertEqual(Set(pruned.keys), ["claude-opus-5-5", "f8fb6248-f83e-423c-897e-c503736ae548", "b49a014d-3d9e-423a-b134-4631636b2406"])
     }
 }
 
