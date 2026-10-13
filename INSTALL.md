@@ -6,7 +6,7 @@ This guide will walk you through installing Claude Usage Tracker on your Mac.
 
 ## ⚡ Quick Install with Homebrew (Easiest)
 
-**This is the recommended installation method** - Homebrew automatically handles macOS security settings.
+**This is the recommended installation method** - one command, and Homebrew handles macOS security settings.
 
 ### Prerequisites
 
@@ -16,44 +16,38 @@ You need Homebrew installed. If you don't have it:
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```
 
-### Installation Steps
+### Install or update (one command)
 
-**Option A: Two commands**
 ```bash
-# Add the tap
-brew tap masorange/claudeusagetracker
-
-# Install the app
-brew install --cask masorange/claudeusagetracker/claudeusagetracker
+curl -fsSL https://raw.githubusercontent.com/masorange/homebrew-claudeusagetracker/main/install.sh | bash
 ```
 
-**Option B: One command**
-```bash
-brew install --cask masorange/claudeusagetracker/claudeusagetracker
-```
+Run it again any time to update. It also moves installations made from the old taps (`masmovil/…`,
+`SergioBanuls/…`) to `masorange/claudeusagetracker` and replaces a manual DMG install, keeping your settings.
 
 ### After Installation
 
-1. The app is automatically installed to `/Applications`
+1. The app is installed to `/Applications` and opens automatically
 2. Look for the **💰** icon in your menu bar (top-right corner)
 3. Click it, press **Sign in** and log in with your corporate account (SSO). The window closes by itself.
 4. No need to run `xattr` or deal with security warnings!
 
-### Update
+### Plain Homebrew commands
 
 ```bash
-# Update Homebrew
-brew update
+# Install
+brew install --cask masorange/claudeusagetracker/claudeusagetracker
+open -a ClaudeUsageTracker
 
-# Upgrade the app
-brew upgrade --cask masorange/claudeusagetracker/claudeusagetracker
+# Update
+brew update && brew upgrade --cask masorange/claudeusagetracker/claudeusagetracker
+
+# Uninstall (add --zap to also remove settings, cache and sign-in data)
+brew uninstall --cask claudeusagetracker
 ```
 
-### Uninstall
-
-```bash
-brew uninstall --cask masorange/claudeusagetracker/claudeusagetracker
-```
+If Homebrew says `Cask claudeusagetracker exists in multiple taps`, you still have an old tap: run the one command
+above (or `brew untap masmovil/claudeusagetracker`).
 
 **🎉 That's it! Skip to the [Usage section](#-next-steps)**
 
