@@ -67,10 +67,16 @@ Step 3: Open the App
 → Click "Open" again when the warning appears
 → Look for the 💰 icon in your menu bar
 
+Step 4: Sign in
+----------------
+→ Click the 💰 icon and press "Sign in"
+→ Log in with your MasOrange corporate account (SSO)
+→ The window closes by itself and your AI usage appears
+
 For detailed instructions and troubleshooting:
 https://github.com/masorange/ClaudeUsageTracker
 
-Enjoy tracking your Claude Code usage! 🎉
+Enjoy tracking your AI usage! 🎉
 EOF
 
 # Create temporary DMG
