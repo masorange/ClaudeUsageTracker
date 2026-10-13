@@ -1,0 +1,82 @@
+[
+  {
+    "model": "vertex_ai/claude-sonnet-5-5",
+    "spend": 10.5261903,
+    "list_spend": 10.5261903,
+    "covered_spend": 0,
+    "requests": 47,
+    "tokens": 18222991,
+    "prompt_tokens": 18184297,
+    "completion_tokens": 38694
+  },
+  {
+    "model": "mcp: grafana-query_loki_logs",
+    "spend": 0,
+    "list_spend": 0,
+    "covered_spend": 0,
+    "requests": 57,
+    "tokens": 0,
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+  },
+  {
+    "model": "mcp: prometheus-get_alerts",
+    "spend": 0,
+    "list_spend": 0,
+    "covered_spend": 0,
+    "requests": 2,
+    "tokens": 0,
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+  },
+  {
+    "model": "mcp: prometheus-get_rules",
+    "spend": 0,
+    "list_spend": 0,
+    "covered_spend": 0,
+    "requests": 12,
+    "tokens": 0,
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+  },
+  {
+    "model": "anthropic/claude-opus-5-5",
+    "spend": 0,
+    "list_spend": 73.36215299999999,
+    "covered_spend": 0,
+    "requests": 407,
+    "tokens": 75482215,
+    "prompt_tokens": 75285710,
+    "completion_tokens": 196505
+  },
+  {
+    "model": "anthropic/claude-sonnet-5-5",
+    "spend": 0,
+    "list_spend": 38.43400664999999,
+    "covered_spend": 0,
+    "requests": 55,
+    "tokens": 50874184,
+    "prompt_tokens": 50827753,
+    "completion_tokens": 46431
+  },
+  {
+    "model": "mcp: list_tools",
+    "spend": 0,
+    "list_spend": 0,
+    "covered_spend": 0,
+    "requests": 32,
+    "tokens": 0,
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+  },
+  {
+    "model": "mcp: grafana-query_prometheus",
+    "spend": 0,
+    "list_spend": 0,
+    "covered_spend": 0,
+    "requests": 12,
+    "tokens": 0,
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+  }
+]

@@ -35,12 +35,12 @@ Please review the [LICENSE](LICENSE) file before contributing.
 
 ### Testing
 Before submitting a PR:
-1. Build the app: `./build.sh`
-2. Test all features:
-   - Menu bar display
-   - Data loading
-   - Language switching
-   - Refresh functionality
+1. Run the unit tests: `swift test`
+2. Build the app: `./build.sh` and test all features:
+   - Sign-in with corporate SSO and silent session renewal
+   - Menu bar display modes
+   - Data loading and refresh
+   - Language and currency switching
 3. Verify on a clean macOS installation if possible
 
 ### Commit Messages
@@ -68,7 +68,6 @@ We use GitHub issue templates to make bug reporting easier and more structured.
 **The template will guide you through providing:**
 - Detailed reproduction steps
 - Your system configuration
-- Whether you're using API or local mode
 - Troubleshooting steps you've already tried
 - Relevant logs from Console.app
 
@@ -108,7 +107,7 @@ We have a comprehensive Pull Request template to ensure quality contributions.
 2. Make your changes following our code style guidelines
 3. Test thoroughly on macOS (see Testing section above)
 4. Update documentation if needed (README, comments, etc.)
-5. Ensure the app builds without errors: `./build.sh`
+5. Ensure `swift test` passes and the app builds without errors: `./build.sh`
 
 **When submitting a PR:**
 1. Go to [Pull Requests](../../pulls)

@@ -36,7 +36,8 @@ brew install --cask masorange/claudeusagetracker/claudeusagetracker
 
 1. The app is automatically installed to `/Applications`
 2. Look for the **💰** icon in your menu bar (top-right corner)
-3. No need to run `xattr` or deal with security warnings!
+3. Click it, press **Sign in** and log in with your corporate account (SSO). The window closes by itself.
+4. No need to run `xattr` or deal with security warnings!
 
 ### Update
 
@@ -140,8 +141,7 @@ If you prefer to build the app yourself from source code:
 
 You'll need:
 - **macOS 13.0** (Ventura) or later
-- **Xcode Command Line Tools**
-- **Claude Code CLI** installed and used
+- **Xcode 15 or later** (the universal build uses `swift build --arch arm64 --arch x86_64`, which needs full Xcode)
 
 ### Step 1: Install Xcode Command Line Tools
 
@@ -210,23 +210,9 @@ open /Applications/ClaudeUsageTracker.app
 ### Check if Data is Loading
 
 1. Click the **💰** icon in the menu bar
-2. You should see your usage data
-3. If you see **$0.00**:
-   - Wait a few seconds for data to load
-   - Click the **🔄 refresh** button
-   - Make sure you have used Claude Code before
-
-### Verify File Permissions
-
-The app needs to read Claude Code's project files. Check if the folder exists:
-
-```bash
-ls ~/.claude/projects/
-```
-
-You should see a list of project folders. If you get "No such file or directory":
-- Make sure Claude Code is installed
-- Make sure you've used Claude Code at least once
+2. If you see **Sign in**, log in with your corporate account (SSO)
+3. You should see your month-to-date spend, tier, budget, tokens per day and most used models
+4. The data comes from https://ai-platform.cloud.masorange.es and can lag ~1 hour behind real usage
 
 ---
 
@@ -262,22 +248,15 @@ This is a macOS security feature called Gatekeeper.
    - Go to **System Settings** > **Privacy & Security**
    - Make sure ClaudeUsageTracker has necessary permissions
 
-### App shows $0.00
+### Menu bar shows 💰 ⚠︎
 
-**Possible reasons:**
+Your corporate session expired. Click the icon and press **Sign in**. If the sign-in window keeps
+reappearing, use ⚙︎ → **Sign out** and sign in again.
 
-1. **No data yet:** Wait 30-60 seconds for the first load
-2. **No Claude Code usage:** The app tracks Claude Code usage, make sure you've used it
-3. **Data location issue:** Run this to verify:
-   ```bash
-   ls -la ~/.claude/projects/
-   ```
+### Numbers differ from the web
 
-**Solutions:**
-
-- Click the **🔄 refresh** button
-- Use Claude Code for a task, then refresh
-- Check Console.app for error messages from "ClaudeUsageTracker"
+Both read the same AI Platform data, refreshed about every hour. Press ⟳ in the popover and compare the
+"Data updated" time in the footer with the web.
 
 ### Build fails with error
 

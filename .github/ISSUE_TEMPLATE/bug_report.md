@@ -36,16 +36,16 @@ If applicable, add screenshots to help explain your problem.
 - **macOS Version:** [e.g., macOS 14.0 Sonoma]
 - **App Version:** [e.g., v1.2.0]
 - **Installation Method:** [Homebrew / Manual DMG / Built from source]
-- **Claude Code CLI Version:** [Run `claude --version`]
 
 ## 📊 Additional Context
 
-### Data Source
-- [ ] Using LiteLLM API integration
-- [ ] Using local file calculation
+### Session
+- [ ] Signed in with corporate SSO (menu bar does not show ⚠︎)
+- [ ] The same data looks correct on https://ai-platform.cloud.masorange.es
 
 ### Does the issue persist after:
 - [ ] Restarting the app
+- [ ] Signing out and in again (⚙︎ → Sign out)
 - [ ] Clearing preferences (delete `~/Library/Preferences/com.claudeusage.tracker.plist`)
 - [ ] Reinstalling the app
 

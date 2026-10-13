@@ -5,7 +5,8 @@
 <h1 align="center">Claude Usage Tracker</h1>
 
 <p align="center">
-  A native macOS menu bar app to monitor your Claude Code API usage in real-time. Track costs per month and per project with accurate, automatic updates.
+  A native macOS menu bar app that shows your personal AI spend at MasOrange — the same data as
+  <a href="https://ai-platform.cloud.masorange.es">AI Platform</a>, one click away.
 </p>
 
 <p align="center">
@@ -17,448 +18,94 @@
 
 ---
 
-## ✨ Features
+## ✨ What it shows
 
-- **🔌 LiteLLM API Integration** - Connect to your company's LiteLLM API for exact usage data
-  - Real-time cost tracking from API (no calculations needed)
-  - **Advanced Model Breakdown**: Get exact costs for every model used (Claude, Gemini, Vertex AI, etc.)
-  - Today's spend monitoring & Budget reset date
-  - **🛡️ Anti-Flicker Protection**: Smart algorithm prevents price drops when API glitches occur
-  - **Full API Pagination Support**: Automatically fetches all pages of data from API
-  - Clear data source indicator (API/Local)
-- **🔔 Auto-Update Notifications** - Never miss a new version
-  - Checks for updates on startup and every 2 hours
-  - Non-intrusive yellow banner when updates are available
-  - Orange dot indicator in menu bar (●)
-  - One-click access to release notes
-- **🤖 Model Tracking** - See exactly which AI models are driving your costs
-- **🎯 Accurate Cost Tracking** - Properly groups tool calls and calculates costs per conversation turn
-- **📊 Real-time Monitoring** - Current month cost visible in your menu bar
-- **🔄 Smart Updates** - Automatic silent updates every minute, manual refresh with visual feedback
-- **📄 Pagination System** - View 2 months at a time with elegant navigation controls
-- **📅 Monthly Breakdown** - Complete usage history organized by month
-- **📁 Project Tracking** - See which projects consume the most tokens
-- **📈 Detailed Metrics** - Token breakdown by type:
-  - Input tokens
-  - Cache creation (write) tokens
-  - Cache read tokens
-  - Output tokens
-- **📤 CSV Export** - Export your data in clean CSV format (by month, project, or model)
-- **⚙️ Configurable Pricing** - Adjust pricing for different Claude models and context windows
-- **🌍 Multi-language** - Switch between English 🇺🇸 and Spanish 🇪🇸
-- **💱 Currency Conversion** - Automatically shows costs in EUR (€) when Spanish is selected, using daily exchange rates
-- **🖥️ Native macOS** - Built with SwiftUI, lightweight and fast
-- **🔒 Privacy-first** - All usage data stays local (only fetches exchange rate once per day)*
-- **🎨 Polished UI** - Clean interface with smooth interactions and auto-close popover
+- **💰 Month-to-date spend** in the menu bar (configurable: spend, spend + %, % of budget, or icon only).
+- **🥉 Your tier and monthly budget** (Iron / Bronze / Silver / Gold) with a progress bar, available amount,
+  days until the budget renews and the month-end forecast.
+- **📊 Tokens per day** for the current month (hover a bar to see tokens and spend for that day).
+- **🤖 Most used models** with their cost. When a model is on a **campaign** (free or discounted), the list
+  price is shown struck through with the discount, e.g. `0,00 US$  ~~159,94 US$~~  −100 %`.
+- **🧠 Models tab**: every model your LiteLLM key can call (Claude, GPT, Gemini, Llama, Mistral, DeepSeek…),
+  grouped by vendor in collapsible sections with their logos, newest version first, with context window and the
+  **price the proxy charges today per 1M tokens** (input, output, cache). Campaigns are read from the proxy's own
+  pricing, so they are current: the list price is struck through and the model is tagged `Gratis` / `−50 %`.
+  Expand a row to copy the exact model id.
+- Spanish / English, USD / EUR, auto-refresh (5–60 min), open at login, update notifications.
 
-*When using API integration, today's spend and budget info are fetched from your LiteLLM server
+Only the **LiteLLM** provider is shown — it is the one that consumes your budget. Usage covered by a
+Claude Enterprise seat is not billed and is not included.
 
----
-
-## 📸 Screenshots
-
-<p align="center">
-  <img src="screenshot.png" alt="Claude Usage Tracker Screenshot" width="800"/>
-</p>
-
-### Menu Bar
-The app shows your current month's cost in the menu bar:
-```
-💰 $165.14
-```
-
-### Main Panel - By Month
-View detailed breakdown by month with token metrics:
-```
-📅 November 2025          $106.72
-   • Input tokens: 41,666 → $0.12
-   • Cache creation: 12,367,742 → $46.38
-   • Cache read: 155,606,800 → $46.68
-   • Output tokens: 902,055 → $13.53
-
-📅 October 2025           $165.14
-   • Input tokens: 108,448 → $0.33
-   • Cache creation: 14,416,808 → $54.06
-   • Cache read: 288,300,577 → $86.49
-   • Output tokens: 1,617,636 → $24.26
-
-──────────────────────────────────
-TOTAL                     $271.86
-```
-
-### Main Panel - By Project
-See which projects cost the most:
-```
-📁 PROJECT-1              $98.45
-📁 PROJECT-2              $73.21
-📁 PROJECT-3              $42.18
-📁 PROJECT-4              $12.34
-...
-```
-
-### Main Panel - By Model
-Track costs by AI model used:
-```
-🤖 claude-3-5-sonnet-20241022    $145.32
-🤖 gemini-2.0-flash-exp          $23.45
-🤖 claude-3-opus-20240229        $18.76
-🤖 gpt-4o                        $12.33
-...
-```
-
-### Settings Panel
-Configure pricing and API integration:
-- **LiteLLM API Key** - Connect to your company's LiteLLM server for exact usage data
-- **Pricing Configuration**:
-  - Standard Context (≤ 200K tokens)
-  - Long Context (> 200K tokens)
-  - Customize rates for each token type (used for local calculation fallback)
-
----
-
-## 🚀 Quick Start
-
-### Option 1: Install with Homebrew (Easiest)
+## 📦 Install
 
 ```bash
-# Add the tap
 brew tap masorange/claudeusagetracker
-
-# Install the app
-brew install --cask masorange/claudeusagetracker/claudeusagetracker
+brew install --cask claudeusagetracker
 ```
 
-**Or install in one command:**
+Upgrade with `brew upgrade --cask claudeusagetracker`. See [INSTALL.md](INSTALL.md) for manual installation.
+
+## 🔐 First launch
+
+1. Click the **💰** icon in the menu bar (it shows `💰 ⚠︎` until you sign in).
+2. Press **Sign in** and log in with your **corporate account (SSO)** in the window that opens.
+3. The window closes by itself and your data appears.
+
+You won't be asked again while your corporate Google session is valid: when the AI Platform session cookie
+expires the app renews it silently in the background.
+
+## 🔎 Where the data comes from
+
+The app calls the read-only personal endpoints of AI Platform (`/api/v1/me`, `/me/month-glance`,
+`/spend/daily`, `/spend/by-model`) with your own SSO session — exactly what the web does. Figures therefore
+match the web, including its **~1 hour delay** (the footer shows when the data was last updated).
+
+- **Privacy:** the session lives only in the app's WebKit storage on your Mac. Nothing is sent anywhere else.
+- **No API key needed.** LiteLLM keys can no longer read spend, so 1.x stopped working; 2.0 replaces that
+  integration (and the Looker / local log estimation) with AI Platform.
+
+## 🔑 LiteLLM key (Models tab only)
+
+Listing the models needs your personal LiteLLM key (the one Claude Code uses as `ANTHROPIC_AUTH_TOKEN`).
+The app picks it up automatically from your Claude Code `settings.json` or a literal `export` in your shell profile;
+otherwise paste it once in the tab. It is stored in the macOS Keychain and only sent to `llm.tools.cloud.masorange.es`.
+After an app update macOS may ask once to let the new version read it — choose **Always Allow**.
+Prices come from the proxy's public cost map: its per-deployment entries carry the price actually charged
+(`claude-X` → campaign deployment, `claude-X-vertex` → list-price deployment), the public entries the list price.
+
+## ⚙️ Settings
+
+Click ⚙︎ in the popover: menu bar text, language, currency, refresh interval, open at login and sign out.
+
+## 🛠️ Development
+
 ```bash
-brew install --cask masorange/claudeusagetracker/claudeusagetracker
+swift test                   # unit tests (UsageCore: API client, models, aggregation)
+./build.sh                   # builds ClaudeUsageTracker.app (universal arm64 + x86_64)
+open ClaudeUsageTracker.app
+./create_release.sh 2.0.0    # app + DMG + SHA-256 in release/
 ```
 
-**Benefits:**
-- ✅ No need to run `xattr` manually - Homebrew automatically removes quarantine
-- ✅ Easy updates: `brew update && brew upgrade --cask masorange/claudeusagetracker/claudeusagetracker`
-- ✅ Clean uninstall: `brew uninstall --cask masorange/claudeusagetracker/claudeusagetracker`
-
-**To update to the latest version:**
-```bash
-brew update && brew upgrade --cask masorange/claudeusagetracker/claudeusagetracker
+```
+Package.swift
+Sources/
+  UsageCore/            # UI-free: APIClient, models, MonthReport aggregation, cache
+  ClaudeUsageTracker/   # AppKit status item, SwiftUI views, WebKit SSO session
+Tests/UsageCoreTests/   # XCTest with anonymized real API responses
 ```
 
-**Important:** Always run `brew update` before `brew upgrade` to ensure Homebrew knows about the latest version. The command above does both in one line.
+Release process: [PUBLISHING.md](PUBLISHING.md). Contributions: [CONTRIBUTING.md](CONTRIBUTING.md).
 
-### Option 2: Download Pre-built App
+## 🧰 Troubleshooting
 
-1. **Download** the latest `.dmg` file from the [Releases](../../releases) page
-2. **Open** the DMG file (double-click)
-3. **Drag** `ClaudeUsageTracker.app` to the `Applications` folder shortcut
-4. **Remove macOS security block** (required for unsigned apps):
-   ```bash
-   xattr -cr /Applications/ClaudeUsageTracker.app
-   ```
-5. **Right-click** the app in Applications and select **"Open"** (first time only)
-6. Look for the **💰** icon in your menu bar (top-right corner)
+- **`💰 ⚠︎` in the menu bar** — your corporate session expired; open the popover and press *Sign in*.
+- **"AI Platform changed its data format"** — the web API changed; update the app
+  (`brew upgrade --cask claudeusagetracker`).
+- **Numbers differ from the web** — the data is refreshed roughly every hour on the server; press ⟳ and
+  compare the "Data updated" time in the footer.
+- **Logs:** `log show --predicate 'subsystem == "com.claudeusage.tracker"' --last 1h`
 
-> **Note**: Since this app is not signed with an Apple Developer certificate, macOS Gatekeeper will block it by default. The `xattr` command above removes this security block. You may still need to right-click and select "Open" the first time.
+## 📄 License
 
-### Option 3: Build from Source
-
-#### Prerequisites
-- macOS 13.0 (Ventura) or later
-- Xcode Command Line Tools installed
-- Claude Code CLI with project history
-
-#### Installation Steps
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/masorange/ClaudeUsageTracker.git
-   cd ClaudeUsageTracker
-   ```
-
-2. **Build the app**
-   ```bash
-   chmod +x build.sh
-   ./build.sh
-   ```
-
-3. **Run the app**
-   ```bash
-   open ClaudeUsageTracker.app
-   ```
-
-4. **(Optional) Install permanently**
-   ```bash
-   cp -r ClaudeUsageTracker.app /Applications/
-   open /Applications/ClaudeUsageTracker.app
-   ```
-
----
-
-## 📋 How It Works
-
-### Data Source
-The app reads Claude Code's local project history files located at:
-```
-~/.claude/projects/
-```
-
-Each project directory contains `.jsonl` files with conversation history and token usage data.
-
-### Processing Logic
-
-1. **Scans** all project directories recursively
-2. **Groups** consecutive assistant messages into conversation "turns"
-   - Tool calls within the same turn (< 10 seconds apart) are counted as one billable event
-   - This prevents double-counting when Claude uses multiple tools
-3. **Parses** usage data from each conversation turn
-4. **Calculates** costs based on configurable pricing (defaults to Claude Sonnet 4.5):
-
-#### Standard Context (≤ 200K tokens)
-- Input tokens: $3.00 per million
-- Cache creation (write): $3.75 per million (1.25× input rate)
-- Cache read: $0.30 per million (10% of input rate)
-- Output tokens: $15.00 per million
-
-#### Long Context (> 200K tokens)
-- Input tokens: $6.00 per million
-- Cache creation (write): $7.50 per million (1.25× input rate)
-- Cache read: $0.60 per million (10% of input rate)
-- Output tokens: $22.50 per million
-
-5. **Groups** data by month and project
-6. **Displays** results in real-time
-
-### Why This Matters
-
-Without proper turn grouping, tool-heavy conversations could be counted 2-3× higher than actual costs. This app accurately matches what you're billed by grouping all tool calls within a single conversation turn.
-
----
-
-## 🎯 Usage
-
-### Menu Bar Icon
-- Shows current month's cost: **💰 $165.14** (or **€** when Spanish is selected)
-- Click to open the detailed panel
-- Updates silently every minute in the background
-- Click outside the panel to close it
-
-### Main Panel
-
-**Data Source Indicator:**
-- 🟢 **API Data** - Using LiteLLM API (exact costs from server)
-- 🟠 **Local Data** - Using local file calculation (fallback mode)
-
-**Today's Spend (API mode only):**
-- Shows your current day's usage
-- Displays budget reset date
-- Updates automatically with each refresh
-
-**Three tabs:**
-1. **By Month** 📅 - Monthly breakdown with detailed token metrics (paginated, 2 months per page)
-2. **By Project** 📁 - Project-based cost analysis (always uses local data)
-3. **By Model** 🤖 - Cost breakdown by specific model (Claude 3.5, Gemini Pro, etc.)
-
-**Controls:**
-- **📤 Export** - Export current view to CSV file
-- **⚙️ Settings** - Configure API key and pricing
-- **🇺🇸 / 🇪🇸 Language Selector** - Switch between English and Spanish
-- **🔄 Refresh** - Manually update data (shows loading spinner)
-- **✖️ Close** - Exit the application
-- **Last update** - Timestamp of last data refresh (bottom)
-
-### Pagination (Monthly View)
-
-When you have more than 2 months of data:
-- **← Newer / Recientes** - Go to more recent months
-- **Page indicator** - Shows current page (e.g., "1 / 3")
-- **Older / Antiguos →** - Go to older months
-- **Total Cost** - Always visible at the bottom, showing grand total
-
-### CSV Export
-
-Export your data for analysis in Excel, Google Sheets, or other tools:
-
-1. Switch to the view you want to export (By Month or By Project)
-2. Click the **📤 Export button** in the top-right
-3. Choose where to save the file
-4. The CSV will include:
-   - Month/Project name
-   - Token type (Input, Cache Creation, Cache Read, Output)
-   - Token count
-   - Cost per type
-   - Totals for each month/project
-   - Grand total
-
-### Settings Panel
-
-**LiteLLM API Integration:**
-
-1. Click the **⚙️ gear icon** in the top-right
-2. Enter your **LiteLLM API Key** (format: `sk-...`)
-3. Click **Save** - the app will automatically:
-   - Fetch exact usage data from your LiteLLM server
-   - Display today's spend and budget reset date
-   - Show 🟢 **API Data** indicator in the main panel
-4. Leave empty to use local file calculation (default behavior)
-
-**Pricing Configuration (Local Calculation Fallback):**
-
-1. Adjust pricing for:
-   - Standard Context (≤ 200K tokens)
-   - Long Context (> 200K tokens)
-2. Configure rates for each token type
-3. Click **Reset to Defaults** to restore Sonnet 4.5 pricing
-4. These settings are used when:
-   - No API key is configured
-   - API is temporarily unavailable (automatic fallback)
-
-### Automatic Updates
-- Updates every 60 seconds automatically (silently, no loading indicator)
-- Manual refresh shows a loading spinner for user feedback
-- Menu bar currency updates instantly when changing language
-
----
-
-## 🛠️ Project Structure
-
-```
-ClaudeUsageTracker/
-├── ClaudeUsageTrackerApp.swift    # App entry point & menu bar
-├── ClaudeUsageManager.swift       # Data parsing, turn grouping & cost calculations
-├── LiteLLMManager.swift            # LiteLLM API integration
-├── PricingManager.swift            # Configurable pricing tiers
-├── CurrencyManager.swift           # Currency conversion (USD/EUR)
-├── LocalizationManager.swift       # Multi-language support (EN/ES)
-├── MainView.swift                  # SwiftUI main interface
-├── SettingsView.swift              # API key & pricing configuration UI
-├── Assets.xcassets/                # App icons & resources
-├── ClaudeUsageTracker.entitlements # macOS permissions
-├── build.sh                        # Build script
-├── create_release.sh               # Release packaging script
-└── README.md                       # This file
-```
-
----
-
-## 🐛 Troubleshooting
-
-### App shows $0.00
-
-**Solution 1**: Wait a few seconds or click the 🔄 refresh button
-
-**Solution 2**: Verify that `~/.claude/projects/` exists and contains data:
-```bash
-ls ~/.claude/projects/
-```
-
-**Solution 3**: Check that you have Claude Code installed and have used it
-
-**Solution 4**: Look in Console.app for any error messages from ClaudeUsageTracker
-
-### App doesn't appear in menu bar
-
-- Check Activity Monitor for "ClaudeUsageTracker"
-- Try quitting and reopening the app
-- Grant necessary permissions in System Settings > Privacy & Security
-
-### Costs seem too high
-
-- The app now properly groups tool calls into conversation turns
-- Check Settings (⚙️) to ensure pricing matches your API plan
-- Compare with your actual Anthropic/Vertex AI bill to verify accuracy
-
-### Build fails
-
-Make sure Xcode Command Line Tools are installed:
-```bash
-xcode-select --install
-```
-
-Verify you're on macOS 13.0 or later:
-```bash
-sw_vers
-```
-
-### Costs don't match my bill
-
-1. **Check currency**: The app shows USD. Convert if your bill is in another currency
-2. **Verify pricing**: Click ⚙️ Settings and ensure rates match your API plan
-3. **Time period**: Ensure you're comparing the same time period
-4. **Billing source**: Claude Code (Anthropic API) vs Vertex AI may have different billing
-
----
-
-## 🔧 Advanced Configuration
-
-### Change Update Frequency
-
-Edit `ClaudeUsageTrackerApp.swift`:
-```swift
-// Default: 60 seconds (1 minute)
-timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { ... }
-```
-
-### Adjust Turn Grouping Threshold
-
-Edit `ClaudeUsageManager.swift` (line ~145):
-```swift
-// Default: 10 seconds
-if timeDiff > 10 || role != "assistant" {
-    isNewTurn = true
-}
-```
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
-
----
-
-## 📝 License
-
-This project is licensed under the **Personal Use License (Non-Commercial)** - see the [LICENSE](LICENSE) file for details.
-
-**Copyright © 2025 [Sergio Bañuls](https://github.com/SergioBanuls)**
-
-This software is provided for **personal use only**. Commercial use is strictly prohibited without prior written permission from the author.
-
----
-
-## 👨‍💻 Author
-
-**[Sergio Bañuls](https://github.com/SergioBanuls)** - *Original Author and Creator*
-
-This project was created and is maintained by [Sergio Bañuls](https://github.com/SergioBanuls) to help the Claude Code community track their API usage efficiently.
-
----
-
-## 🙏 Acknowledgments
-
-- Built with SwiftUI and native macOS frameworks
-- Inspired by the need to accurately monitor Claude API costs
-- Thanks to the Claude Code team for maintaining local project history
-- Special thanks to the open-source community
-
----
-
-## 📧 Support
-
-If you have questions, suggestions, or issues:
-
-- **Open an issue** on [GitHub Issues](../../issues)
-- **Check existing issues** before creating a new one
-- **Provide details**: OS version, Claude Code version, and steps to reproduce
-
----
-
-
-**Made with ❤️ for the Claude Code community**
+Personal Use License (Non-Commercial). See [LICENSE](LICENSE).
+Provider logos: [LobeHub Icons](https://github.com/lobehub/lobe-icons) (MIT), see `Resources/ProviderIcons/LICENSE`.

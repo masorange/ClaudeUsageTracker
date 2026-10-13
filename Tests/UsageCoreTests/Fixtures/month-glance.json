@@ -1,0 +1,65 @@
+{
+  "month_start": "2026-10-01",
+  "today": "2026-10-13",
+  "prev_month_start": "2026-09-01",
+  "prev_same_day": "2026-09-13",
+  "spend_mtd": 10.5261903,
+  "covered_mtd": 568.7771435500001,
+  "requests_mtd": 5368,
+  "active_days": 8,
+  "prev_spend_same_day": 16.7672865,
+  "prev_usage_same_day": 16.7672865,
+  "prev_requests_same_day": 818,
+  "prev_spend_month": 16.7672865,
+  "delta_same_day_pct": 33.549617426170904,
+  "max_budget": 206,
+  "projection": 34.210118475,
+  "projection_pct": 0.16606853628640778,
+  "projection_vs_prev_pct": 1.0402894931747007,
+  "days_remaining": 18,
+  "insufficient_history": false,
+  "top_model": "Opus 5.5",
+  "top_model_share": 0.9807442239700828,
+  "providers": [
+    "litellm",
+    "claude_enterprise"
+  ],
+  "by_provider": [
+    {
+      "provider": "litellm",
+      "spend_mtd": 10.5261903,
+      "covered_mtd": 0,
+      "requests_mtd": 624,
+      "prev_spend_same_day": 16.7672865,
+      "prev_usage_same_day": 16.7672865,
+      "delta_same_day_pct": -0.3722186174847075,
+      "max_budget": 205,
+      "projection": 34.210118475,
+      "projection_pct": 0.16687862670731707,
+      "insufficient_history": false,
+      "top_model": "Sonnet 5.5",
+      "top_model_share": 1
+    },
+    {
+      "provider": "claude_enterprise",
+      "spend_mtd": 0,
+      "covered_mtd": 568.7771435500001,
+      "requests_mtd": 4744,
+      "prev_spend_same_day": 0,
+      "prev_usage_same_day": 0,
+      "delta_same_day_pct": null,
+      "max_budget": 1,
+      "projection": 0,
+      "projection_pct": 0,
+      "insufficient_history": false,
+      "top_model": "Opus 5.5",
+      "top_model_share": null
+    }
+  ],
+  "levers": {
+    "cache_rate": 0.9346036905219661,
+    "avg_prompt": 319961.94447560294,
+    "sessions_over_150k": 13,
+    "avg_turns": 6.289241622574956
+  }
+}

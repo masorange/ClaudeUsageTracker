@@ -14,7 +14,7 @@ rm -rf ClaudeUsageTracker.app ClaudeUsageTracker_binary
 
 # Build the app
 echo "🔨 Building app..."
-./build.sh
+VERSION="$VERSION" ./build.sh
 
 # Create DMG
 echo "📦 Creating DMG package..."
@@ -56,7 +56,7 @@ $(cat release/${DMG_NAME}.sha256)
 ## 📋 Requirements
 
 - macOS 13.0 (Ventura) or later
-- Claude Code CLI installed
+- A MasOrange corporate account (sign in with SSO on first launch)
 
 ---
 

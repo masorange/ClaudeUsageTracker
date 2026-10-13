@@ -37,3 +37,10 @@ get_download_stats.sh
 
 # Logo (tracked)
 !logo.png
+
+# Superpowers workspaces
+.superpowers/
+
+# Internal design notes (kept local, not published)
+docs/research/
+docs/superpowers/

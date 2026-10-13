@@ -1,64 +1,31 @@
 #!/bin/bash
+set -euo pipefail
 
-set -e
+VERSION="${VERSION:-2.0.0}"
+BUILD_NUMBER="${BUILD_NUMBER:-11}"
+APP="ClaudeUsageTracker.app"
 
-echo "🔨 Compilando ClaudeUsageTracker..."
+echo "🔨 Building ClaudeUsageTracker ${VERSION} (universal)..."
+swift build -c release --arch arm64 --arch x86_64 --product ClaudeUsageTracker
+BIN_DIR="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
 
-SWIFT_FILES="ClaudeUsageTrackerApp.swift ClaudeUsageManager.swift LocalizationManager.swift PricingManager.swift PreferencesManager.swift CurrencyManager.swift LiteLLMManager.swift LookerStudioManager.swift LookerAuthWindow.swift UpdateManager.swift SettingsView.swift MainView.swift"
+rm -rf "$APP"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp "$BIN_DIR/ClaudeUsageTracker" "$APP/Contents/MacOS/ClaudeUsageTracker"
+chmod +x "$APP/Contents/MacOS/ClaudeUsageTracker"
 
-# Compilar para ARM64 (Apple Silicon)
-echo "  → Compilando para Apple Silicon (arm64)..."
-swiftc \
-    -target arm64-apple-macos13.0 \
-    -framework AppKit \
-    -framework SwiftUI \
-    -framework WebKit \
-    -o ClaudeUsageTracker_arm64 \
-    $SWIFT_FILES
+# Provider logos (LobeHub Icons, MIT) loaded at runtime from Contents/Resources/ProviderIcons.
+cp -R Resources/ProviderIcons "$APP/Contents/Resources/ProviderIcons"
 
-# Compilar para x86_64 (Intel)
-echo "  → Compilando para Intel (x86_64)..."
-swiftc \
-    -target x86_64-apple-macos13.0 \
-    -framework AppKit \
-    -framework SwiftUI \
-    -framework WebKit \
-    -o ClaudeUsageTracker_x86_64 \
-    $SWIFT_FILES
-
-# Crear binario universal
-echo "  → Creando binario universal..."
-lipo -create -output ClaudeUsageTracker_binary ClaudeUsageTracker_arm64 ClaudeUsageTracker_x86_64
-
-# Limpiar binarios temporales
-rm ClaudeUsageTracker_arm64 ClaudeUsageTracker_x86_64
-
-# Crear estructura de la app
-mkdir -p "ClaudeUsageTracker.app/Contents/MacOS"
-mkdir -p "ClaudeUsageTracker.app/Contents/Resources"
-
-# Mover el binario
-mv ClaudeUsageTracker_binary "ClaudeUsageTracker.app/Contents/MacOS/ClaudeUsageTracker"
-chmod +x "ClaudeUsageTracker.app/Contents/MacOS/ClaudeUsageTracker"
-
-# Copiar recursos
-cp -r Assets.xcassets "ClaudeUsageTracker.app/Contents/Resources/"
-
-# Crear icono .icns desde el AppIcon.appiconset
 if [ -d "Assets.xcassets/AppIcon.appiconset" ]; then
-    # Crear iconset temporal
-    mkdir -p /tmp/AppIcon.iconset
-    cp Assets.xcassets/AppIcon.appiconset/*.png /tmp/AppIcon.iconset/ 2>/dev/null || true
-    
-    # Convertir a .icns
-    if [ -d "/tmp/AppIcon.iconset" ]; then
-        iconutil -c icns /tmp/AppIcon.iconset -o "ClaudeUsageTracker.app/Contents/Resources/AppIcon.icns" 2>/dev/null || true
-        rm -rf /tmp/AppIcon.iconset
-    fi
+    ICONSET="$(mktemp -d)/AppIcon.iconset"
+    mkdir -p "$ICONSET"
+    cp Assets.xcassets/AppIcon.appiconset/*.png "$ICONSET/" 2>/dev/null || true
+    iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns" 2>/dev/null || true
+    rm -rf "$(dirname "$ICONSET")"
 fi
 
-# Crear Info.plist
-cat > "ClaudeUsageTracker.app/Contents/Info.plist" << 'EOF'
+cat > "$APP/Contents/Info.plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -69,12 +36,14 @@ cat > "ClaudeUsageTracker.app/Contents/Info.plist" << 'EOF'
     <string>com.claudeusage.tracker</string>
     <key>CFBundleName</key>
     <string>ClaudeUsageTracker</string>
+    <key>CFBundleDisplayName</key>
+    <string>Claude Usage Tracker</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.15.0</string>
+    <string>${VERSION}</string>
     <key>CFBundleVersion</key>
-    <string>10</string>
+    <string>${BUILD_NUMBER}</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>LSUIElement</key>
@@ -82,12 +51,12 @@ cat > "ClaudeUsageTracker.app/Contents/Info.plist" << 'EOF'
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>NSHumanReadableCopyright</key>
-    <string>Copyright © 2025 Sergio Bañuls</string>
+    <string>Copyright © 2025-2026 Sergio Bañuls</string>
 </dict>
 </plist>
 EOF
 
-echo "✅ App compilada en: ClaudeUsageTracker.app"
-echo ""
-echo "Para ejecutarla:"
-echo "  open ClaudeUsageTracker.app"
+# Ad-hoc signature so WebKit and SMAppService accept the bundle.
+codesign --force --sign - "$APP" >/dev/null
+
+echo "✅ Built $APP ($(lipo -archs "$APP/Contents/MacOS/ClaudeUsageTracker"))"
