@@ -26,6 +26,10 @@
 - **📊 Tokens per day** for the current month (hover a bar to see tokens and spend for that day).
 - **🤖 Most used models** with their cost. When a model is on a **campaign** (free or discounted), the list
   price is shown struck through with the discount, e.g. `0,00 US$  ~~159,94 US$~~  −100 %`.
+- **🧠 Models tab**: every model your LiteLLM key can call (Claude, GPT, Gemini, Llama, Mistral, DeepSeek…),
+  grouped by vendor in collapsible sections with their logos, with context window and **list price per 1M tokens**
+  (input, output, cache). Models on a campaign this month are tagged (e.g. `−100 % este mes`); expand a row to copy
+  the exact model id.
 - Spanish / English, USD / EUR, auto-refresh (5–60 min), open at login, update notifications.
 
 Only the **LiteLLM** provider is shown — it is the one that consumes your budget. Usage covered by a
@@ -58,6 +62,14 @@ match the web, including its **~1 hour delay** (the footer shows when the data w
 - **Privacy:** the session lives only in the app's WebKit storage on your Mac. Nothing is sent anywhere else.
 - **No API key needed.** LiteLLM keys can no longer read spend, so 1.x stopped working; 2.0 replaces that
   integration (and the Looker / local log estimation) with AI Platform.
+
+## 🔑 LiteLLM key (Models tab only)
+
+Listing the models needs your personal LiteLLM key (the one Claude Code uses as `ANTHROPIC_AUTH_TOKEN`).
+The app picks it up automatically from your Claude Code `settings.json` or a literal `export` in your shell profile;
+otherwise paste it once in the tab. It is stored in the macOS Keychain and only sent to `llm.tools.cloud.masorange.es`.
+After an app update macOS may ask once to let the new version read it — choose **Always Allow**.
+Prices come from LiteLLM's public list-price map; campaigns can only be shown for models you used this month.
 
 ## ⚙️ Settings
 
@@ -95,3 +107,4 @@ Release process: [PUBLISHING.md](PUBLISHING.md). Contributions: [CONTRIBUTING.md
 ## 📄 License
 
 Personal Use License (Non-Commercial). See [LICENSE](LICENSE).
+Provider logos: [LobeHub Icons](https://github.com/lobehub/lobe-icons) (MIT), see `Resources/ProviderIcons/LICENSE`.
