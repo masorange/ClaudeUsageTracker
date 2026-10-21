@@ -113,6 +113,19 @@ final class ModelCatalogTests: XCTestCase {
         XCTAssertNil(gpt.discount)
     }
 
+    func testDeploymentEntryWithoutCostsFallsBackToTheListPrice() throws {
+        // Gemini deployments carry `base_model` and `tier` but no costs; the list price must still show.
+        let prices: [String: ModelPrice] = [
+            "gemini-2.5-flash": ModelPrice(inputCostPerToken: 3e-7, outputCostPerToken: 2.5e-6),
+            "80584ad9": ModelPrice(tier: "paid", baseModel: "gemini-2.5-flash"),
+        ]
+        let gemini = try entry("gemini-2.5-flash", in: ModelCatalog.build(models: [ProxyModel(id: "gemini-2.5-flash")],
+                                                                          prices: prices))
+        XCTAssertEqual(gemini.inputPerMillion ?? -1, 0.3, accuracy: 1e-9)
+        XCTAssertEqual(gemini.outputPerMillion ?? -1, 2.5, accuracy: 1e-9)
+        XCTAssertNil(gemini.discount)
+    }
+
     func testVersionParsing() {
         let cases: [(String, [Int])] = [
             ("claude-opus-5-5", [5, 5]), ("claude-haiku-4-5-20251001", [4, 5]), ("claude-opus-5-5-vertex", [5, 5]),

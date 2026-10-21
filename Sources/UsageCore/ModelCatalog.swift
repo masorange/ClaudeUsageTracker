@@ -158,12 +158,15 @@ public enum ModelCatalog {
 
     /// The proxy's own deployments appear in the cost map keyed by deployment id, with `base_model` and a routing
     /// `tier`. Verified 2026-10-13 with `x-litellm-model-id`: `claude-X` routes to the `free` deployment (where
-    /// campaigns are priced) and `claude-X-vertex` to the `paid` one.
+    /// campaigns are priced) and `claude-X-vertex` to the `paid` one. Deployments without costs (Gemini's, for now)
+    /// are skipped so the list price is used instead.
     static func deploymentPrice(for id: String, in prices: [String: ModelPrice]) -> ModelPrice? {
         let base = baseID(id)
         let wantedTier = id.hasSuffix(vertexSuffix) ? "paid" : "free"
         let candidates = prices.values.filter { price in
-            guard let model = price.baseModel else { return false }
+            guard let model = price.baseModel, price.inputCostPerToken != nil || price.outputCostPerToken != nil else {
+                return false
+            }
             return normalizedBase(model) == base
         }
         return candidates.first { $0.tier == wantedTier } ?? (candidates.count == 1 ? candidates.first : nil)
